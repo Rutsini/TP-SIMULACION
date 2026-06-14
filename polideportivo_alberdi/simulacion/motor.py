@@ -85,6 +85,16 @@ def _limpiar_variables_generadas(estado: Dict) -> None:
     estado["tipo_variable_generada"] = ""
 
 
+def _limpiar_integracion_generada(estado: Dict) -> None:
+    estado["id_limpieza_generada"] = "-"
+    estado["metodo_integracion_limpieza"] = "-"
+    estado["h_integracion_limpieza"] = "-"
+    estado["valor_integracion_limpieza"] = "-"
+    estado["tiempo_limpieza_generado"] = "-"
+    estado["d_objetivo_limpieza"] = "-"
+    estado["c_inicio_limpieza"] = "-"
+
+
 def _programar_llegada(
     estado: Dict,
     disciplina: str,
@@ -188,11 +198,15 @@ def _procesar_fin_uso(
     estado["grupo_actual"] = None
     estado["eventos"]["Fin Uso Cancha"] = float("inf")
     estado["eventos"]["Fin Limpieza"] = reloj + tiempo_limpieza
+    estado["id_limpieza_generada"] = limpieza_id
+    estado["metodo_integracion_limpieza"] = metodo
+    estado["h_integracion_limpieza"] = h
+    estado["valor_integracion_limpieza"] = tiempo_limpieza
     estado["tiempo_limpieza_generado"] = tiempo_limpieza
     estado["d_objetivo_limpieza"] = d_objetivo
     estado["c_inicio_limpieza"] = c_inicial
-    estado["rnd_usado"] = ""
-    estado["valor_generado"] = ""
+    estado["tipo_variable_generada"] = "Integracion Limpieza"
+    estado["valor_generado"] = tiempo_limpieza
 
     fila_integracion = {
         "ID Limpieza": limpieza_id,
@@ -202,7 +216,8 @@ def _procesar_fin_uso(
         "h": h,
         "Metodo": metodo,
         "Coeficiente C": coeficiente_limpieza,
-        "Tiempo resultante": tiempo_limpieza,
+        "Valor resultante de la integracion": tiempo_limpieza,
+        "Tiempo resultante de limpieza": tiempo_limpieza,
         "Cantidad de pasos": pasos,
     }
     if guardar_pasos_integracion:
@@ -232,6 +247,10 @@ def _crear_fila(iteracion: int, reloj: float, evento: str, estado: Dict) -> Dict
         "Proxima Llegada Basket": estado["eventos"]["Llegada Basket"],
         "Proximo Fin Uso": estado["eventos"]["Fin Uso Cancha"],
         "Proximo Fin Limpieza": estado["eventos"]["Fin Limpieza"],
+        "ID Limpieza": estado["id_limpieza_generada"],
+        "Metodo Integracion": estado["metodo_integracion_limpieza"],
+        "h Integracion": estado["h_integracion_limpieza"],
+        "Valor Integracion Limpieza": estado["valor_integracion_limpieza"],
         "Estado Cancha": estado["estado_cancha"],
         "Disciplina Actual": estado["disciplina_actual"],
         "ID Grupo Actual": estado["grupo_actual"] or "",
@@ -305,6 +324,7 @@ def simular(parametros: Dict) -> Dict:
         estado["reloj"] = hora_evento
         iteracion += 1
         _limpiar_variables_generadas(estado)
+        _limpiar_integracion_generada(estado)
 
         if evento == "Fin Simulacion":
             ultima_fila = _crear_fila(iteracion, estado["reloj"], evento, estado)
@@ -357,11 +377,7 @@ def simular(parametros: Dict) -> Dict:
         "integraciones": pd.DataFrame(integraciones).round(4),
         "metricas": {
             clave: round(valor, 4)
-            for clave, valor in calcular_metricas_finales(
-                estado,
-                tiempo_final,
-                float(parametros.get("minutos_por_dia", 1440.0)),
-            ).items()
+            for clave, valor in calcular_metricas_finales(estado, tiempo_final).items()
         },
         "iteraciones": iteracion,
         "tiempo_final": round(tiempo_final, 4),

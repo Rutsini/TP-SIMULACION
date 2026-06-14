@@ -9,25 +9,18 @@ from simulacion.motor import simular
 
 
 def _mostrar_metricas(metricas: dict) -> None:
-    columnas = st.columns(4)
+    columnas = st.columns(5)
     claves = [
         "Espera promedio Futbol",
         "Espera promedio HandBall",
         "Espera promedio Basket",
-        "Tiempo libre diario promedio",
-        "Cantidad promedio de limpiezas por dia",
-        "Porcentaje de tiempo libre de cancha",
-        "Porcentaje de tiempo ocupado de cancha",
-        "Grupos retirados totales",
-        "Maxima cola total",
+        "Tiempo libre diario promedio de la cancha",
+        "Limpiezas promedio por dia",
     ]
 
     for indice, clave in enumerate(claves):
         valor = metricas.get(clave, 0)
-        sufijo = "%"
-        if "Porcentaje" not in clave:
-            sufijo = ""
-        columnas[indice % 4].metric(clave, f"{valor:.4f}{sufijo}" if isinstance(valor, float) else valor)
+        columnas[indice].metric(clave, f"{valor:.4f}" if isinstance(valor, float) else valor)
 
 
 def _parametros_sidebar() -> dict:
@@ -85,7 +78,6 @@ def _parametros_sidebar() -> dict:
         max_uso_handball = st.number_input("Maximo uso HandBall", min_value=0.0, value=100.0, step=5.0)
         min_uso_basket = st.number_input("Minimo uso Basket", min_value=0.0, value=70.0, step=5.0)
         max_uso_basket = st.number_input("Maximo uso Basket", min_value=0.0, value=130.0, step=5.0)
-        minutos_por_dia = st.number_input("Minutos por dia para metricas", min_value=1.0, value=1440.0, step=60.0)
 
     parametros_llegadas = {
         "Futbol": {"media": media_llegada_futbol},
@@ -115,7 +107,6 @@ def _parametros_sidebar() -> dict:
         "metodo_integracion": metodo_integracion,
         "guardar_pasos_integracion": guardar_pasos_integracion,
         "coeficiente_limpieza": coeficiente_limpieza,
-        "minutos_por_dia": minutos_por_dia,
         "parametros_llegadas": parametros_llegadas,
         "parametros_usos": parametros_usos,
     }
@@ -151,21 +142,19 @@ def _mostrar_formulas() -> None:
 
             **Promedios de espera**
 
-            `espera promedio disciplina = acum espera disciplina / cantidad atendidos disciplina`
+            `espera promedio por disciplina = acumulador de espera de la disciplina / cantidad de grupos atendidos de esa disciplina`
 
             **Tiempo libre diario promedio**
 
-            `tiempo libre diario promedio = tiempo libre acumulado / (tiempo simulado / 1440)`
+            `tiempo libre diario promedio = tiempo libre acumulado / dias simulados`
 
             **Limpiezas promedio por dia**
 
-            `limpiezas promedio por dia = cantidad limpiezas / (tiempo simulado / 1440)`
+            `limpiezas promedio por dia = cantidad de limpiezas realizadas / dias simulados`
 
-            **Porcentaje de ocupacion/libre**
+            **Dias simulados**
 
-            `porcentaje ocupado = tiempo ocupado acumulado / tiempo simulado * 100`
-
-            `porcentaje libre = tiempo libre acumulado / tiempo simulado * 100`
+            `dias simulados = tiempo simulado / 1440`
             """
         )
 
@@ -196,9 +185,16 @@ def main() -> None:
     )
 
     st.subheader("Vector de estado")
+    if parametros["mostrar_todas"]:
+        st.caption("Mostrando todas las filas simuladas.")
+    else:
+        st.caption(
+            f"Mostrando hasta {parametros['cantidad_filas']} filas "
+            f"desde el minuto {parametros['hora_desde']:.4f}."
+        )
     vector_estado = resultado["vector_estado"]
     if not vector_estado.empty:
-        st.dataframe(vector_estado, use_container_width=True, height=520)
+        st.dataframe(vector_estado, use_container_width=True, height=820)
     else:
         st.warning("No se generaron filas para mostrar.")
 
