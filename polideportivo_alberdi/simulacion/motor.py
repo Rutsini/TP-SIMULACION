@@ -1,0 +1,369 @@
+"""Motor principal de simulacion por eventos discretos."""
+
+from __future__ import annotations
+
+import math
+from typing import Dict, List, Tuple
+
+import numpy as np
+import pandas as pd
+
+from .distribuciones import generar_llegada, generar_uso
+from .estado import (
+    DISCIPLINAS,
+    EVENTO_LLEGADA,
+    cola_total,
+    crear_estado_inicial,
+    crear_grupo,
+    resumen_objetos_activos,
+    seleccionar_proximo_grupo,
+)
+from .integracion import calcular_limpieza
+from .metricas import calcular_metricas_finales
+
+
+def _debe_guardar_fila(
+    reloj: float,
+    mostrar_todas: bool,
+    hora_desde: float,
+    cantidad_filas: int,
+    guardadas_en_rango: int,
+) -> bool:
+    if mostrar_todas:
+        return True
+    return reloj >= hora_desde and guardadas_en_rango < cantidad_filas
+
+
+def _formatear_valor(valor):
+    if isinstance(valor, float):
+        if math.isinf(valor):
+            return ""
+        return round(valor, 4)
+    return valor
+
+
+def _evento_minimo(eventos: Dict[str, float]) -> Tuple[str, float]:
+    return min(eventos.items(), key=lambda item: item[1])
+
+
+def _parametros_llegadas_por_defecto() -> Dict:
+    return {
+        "Futbol": {"media": 600.0},
+        "HandBall": {"min": 600.0, "max": 840.0},
+        "Basket": {"min": 360.0, "max": 600.0},
+    }
+
+
+def _parametros_usos_por_defecto() -> Dict:
+    return {
+        "Futbol": {"min": 80.0, "max": 100.0},
+        "HandBall": {"min": 60.0, "max": 100.0},
+        "Basket": {"min": 70.0, "max": 130.0},
+    }
+
+
+def _actualizar_acumuladores_tiempo(estado: Dict, delta: float) -> None:
+    if delta <= 0:
+        return
+    if estado["estado_cancha"] == "Libre":
+        estado["tiempo_libre"] += delta
+    elif estado["estado_cancha"] == "Ocupada":
+        estado["tiempo_ocupado"] += delta
+
+
+def _registrar_variable_generada(estado: Dict, tipo: str, rnd: float, valor: float) -> None:
+    estado["variables_generadas"].append({"tipo": tipo, "rnd": rnd, "valor": valor})
+    estado["rnd_usado"] = " | ".join(str(round(item["rnd"], 4)) for item in estado["variables_generadas"])
+    estado["valor_generado"] = " | ".join(str(round(item["valor"], 4)) for item in estado["variables_generadas"])
+    estado["tipo_variable_generada"] = " | ".join(item["tipo"] for item in estado["variables_generadas"])
+
+
+def _limpiar_variables_generadas(estado: Dict) -> None:
+    estado["variables_generadas"] = []
+    estado["rnd_usado"] = ""
+    estado["valor_generado"] = ""
+    estado["tipo_variable_generada"] = ""
+
+
+def _programar_llegada(
+    estado: Dict,
+    disciplina: str,
+    rng: np.random.Generator,
+    reloj: float,
+    parametros_llegadas: Dict,
+) -> None:
+    tiempo, rnd = generar_llegada(disciplina, rng, parametros_llegadas)
+    estado["eventos"][EVENTO_LLEGADA[disciplina]] = reloj + tiempo
+    estado["ultimo_rnd_llegada"] = rnd
+    _registrar_variable_generada(estado, f"Llegada {disciplina}", rnd, tiempo)
+
+
+def _iniciar_uso_si_corresponde(
+    estado: Dict,
+    rng: np.random.Generator,
+    reloj: float,
+    parametros_usos: Dict,
+) -> None:
+    if estado["estado_cancha"] != "Libre":
+        return
+
+    grupo = seleccionar_proximo_grupo(estado)
+    if grupo is None:
+        estado["disciplina_actual"] = ""
+        estado["grupo_actual"] = None
+        return
+
+    tiempo_uso, rnd = generar_uso(grupo["disciplina"], rng, parametros_usos)
+    grupo["estado"] = "En Cancha"
+    grupo["hora_inicio_uso"] = reloj
+    grupo["tiempo_espera"] = reloj - grupo["hora_llegada"]
+    estado["estado_cancha"] = "Ocupada"
+    estado["disciplina_actual"] = grupo["disciplina"]
+    estado["grupo_actual"] = grupo["id"]
+    estado["eventos"]["Fin Uso Cancha"] = reloj + tiempo_uso
+    estado["ultimo_rnd_uso"] = rnd
+    _registrar_variable_generada(estado, f"Uso {grupo['disciplina']}", rnd, tiempo_uso)
+
+
+def _procesar_llegada(
+    estado: Dict,
+    disciplina: str,
+    rng: np.random.Generator,
+    reloj: float,
+    capacidad_cola: int,
+    parametros_llegadas: Dict,
+    parametros_usos: Dict,
+) -> None:
+    _programar_llegada(estado, disciplina, rng, reloj, parametros_llegadas)
+
+    if cola_total(estado) >= capacidad_cola:
+        estado["retirados"][disciplina] += 1
+        return
+
+    grupo = crear_grupo(estado, disciplina, reloj)
+    estado["colas"][disciplina].append(grupo["id"])
+    estado["maxima_cola_total"] = max(estado["maxima_cola_total"], cola_total(estado))
+    _iniciar_uso_si_corresponde(estado, rng, reloj, parametros_usos)
+
+
+def _procesar_fin_uso(
+    estado: Dict,
+    reloj: float,
+    objetivos_limpieza: Dict[str, float],
+    h: float,
+    metodo: str,
+    coeficiente_limpieza: float,
+    guardar_pasos_integracion: bool,
+    integraciones: List[Dict],
+) -> None:
+    grupo_id = estado["grupo_actual"]
+    if grupo_id is None:
+        estado["eventos"]["Fin Uso Cancha"] = float("inf")
+        return
+
+    grupo = estado["objetos"][grupo_id]
+    grupo["hora_salida"] = reloj
+    disciplina = grupo["disciplina"]
+    estado["acum_espera"][disciplina] += grupo["tiempo_espera"] or 0.0
+    estado["atendidos"][disciplina] += 1
+    del estado["objetos"][grupo_id]
+
+    c_inicial = cola_total(estado)
+    d_objetivo = objetivos_limpieza[disciplina]
+    tiempo_limpieza, pasos, detalle = calcular_limpieza(
+        d_objetivo=d_objetivo,
+        c_inicial=c_inicial,
+        h=h,
+        metodo=metodo,
+        coeficiente_c=coeficiente_limpieza,
+        guardar_pasos=guardar_pasos_integracion,
+    )
+
+    limpieza_id = estado["proximo_id_limpieza"]
+    estado["proximo_id_limpieza"] += 1
+    estado["cantidad_limpiezas"] += 1
+    estado["estado_cancha"] = "En Limpieza"
+    estado["disciplina_limpieza"] = disciplina
+    estado["disciplina_actual"] = ""
+    estado["grupo_actual"] = None
+    estado["eventos"]["Fin Uso Cancha"] = float("inf")
+    estado["eventos"]["Fin Limpieza"] = reloj + tiempo_limpieza
+    estado["tiempo_limpieza_generado"] = tiempo_limpieza
+    estado["d_objetivo_limpieza"] = d_objetivo
+    estado["c_inicio_limpieza"] = c_inicial
+    estado["rnd_usado"] = ""
+    estado["valor_generado"] = ""
+
+    fila_integracion = {
+        "ID Limpieza": limpieza_id,
+        "Disciplina": disciplina,
+        "D objetivo": d_objetivo,
+        "C inicial": c_inicial,
+        "h": h,
+        "Metodo": metodo,
+        "Coeficiente C": coeficiente_limpieza,
+        "Tiempo resultante": tiempo_limpieza,
+        "Cantidad de pasos": pasos,
+    }
+    if guardar_pasos_integracion:
+        fila_integracion["Pasos internos"] = detalle
+    integraciones.append(fila_integracion)
+
+
+def _procesar_fin_limpieza(
+    estado: Dict,
+    rng: np.random.Generator,
+    reloj: float,
+    parametros_usos: Dict,
+) -> None:
+    estado["estado_cancha"] = "Libre"
+    estado["eventos"]["Fin Limpieza"] = float("inf")
+    estado["disciplina_limpieza"] = ""
+    _iniciar_uso_si_corresponde(estado, rng, reloj, parametros_usos)
+
+
+def _crear_fila(iteracion: int, reloj: float, evento: str, estado: Dict) -> Dict:
+    fila = {
+        "N": iteracion,
+        "Reloj": reloj,
+        "Evento": evento,
+        "Proxima Llegada Futbol": estado["eventos"]["Llegada Futbol"],
+        "Proxima Llegada HandBall": estado["eventos"]["Llegada HandBall"],
+        "Proxima Llegada Basket": estado["eventos"]["Llegada Basket"],
+        "Proximo Fin Uso": estado["eventos"]["Fin Uso Cancha"],
+        "Proximo Fin Limpieza": estado["eventos"]["Fin Limpieza"],
+        "Estado Cancha": estado["estado_cancha"],
+        "Disciplina Actual": estado["disciplina_actual"],
+        "ID Grupo Actual": estado["grupo_actual"] or "",
+        "Cola Futbol": len(estado["colas"]["Futbol"]),
+        "Cola HandBall": len(estado["colas"]["HandBall"]),
+        "Cola Basket": len(estado["colas"]["Basket"]),
+        "Cola Total": cola_total(estado),
+        "RND usado": estado["rnd_usado"],
+        "Valor generado": estado["valor_generado"],
+        "Tipo variable generada": estado["tipo_variable_generada"],
+        "Ultimo RND Llegada": estado["ultimo_rnd_llegada"],
+        "Ultimo RND Uso": estado["ultimo_rnd_uso"],
+        "Tiempo Limpieza Generado": estado["tiempo_limpieza_generado"],
+        "D Objetivo Limpieza": estado["d_objetivo_limpieza"],
+        "C al iniciar limpieza": estado["c_inicio_limpieza"],
+        "Acum Espera Futbol": estado["acum_espera"]["Futbol"],
+        "Acum Espera HandBall": estado["acum_espera"]["HandBall"],
+        "Acum Espera Basket": estado["acum_espera"]["Basket"],
+        "Cantidad Atendidos Futbol": estado["atendidos"]["Futbol"],
+        "Cantidad Atendidos HandBall": estado["atendidos"]["HandBall"],
+        "Cantidad Atendidos Basket": estado["atendidos"]["Basket"],
+        "Retirados Futbol": estado["retirados"]["Futbol"],
+        "Retirados HandBall": estado["retirados"]["HandBall"],
+        "Retirados Basket": estado["retirados"]["Basket"],
+        "Tiempo Libre Acumulado": estado["tiempo_libre"],
+        "Tiempo Ocupado Acumulado": estado["tiempo_ocupado"],
+        "Cantidad Limpiezas": estado["cantidad_limpiezas"],
+        "Maxima Cola Total": estado["maxima_cola_total"],
+        "Objetos Temporales Activos": resumen_objetos_activos(estado),
+    }
+    return {clave: _formatear_valor(valor) for clave, valor in fila.items()}
+
+
+def simular(parametros: Dict) -> Dict:
+    """Ejecuta la simulacion y devuelve vector de estado, integraciones y metricas."""
+    rng = np.random.default_rng(parametros.get("semilla"))
+    estado = crear_estado_inicial()
+    tiempo_simulacion = float(parametros["tiempo_simulacion"])
+    max_iteraciones = int(parametros["max_iteraciones"])
+    parametros_llegadas = parametros.get("parametros_llegadas", _parametros_llegadas_por_defecto())
+    parametros_usos = parametros.get("parametros_usos", _parametros_usos_por_defecto())
+    estado["eventos"]["Fin Simulacion"] = tiempo_simulacion
+
+    for disciplina in DISCIPLINAS:
+        _programar_llegada(estado, disciplina, rng, 0.0, parametros_llegadas)
+
+    filas: List[Dict] = []
+    ultima_fila = _crear_fila(0, 0.0, "Inicializacion", estado)
+    guardadas_en_rango = 0
+    if _debe_guardar_fila(
+        0.0,
+        parametros["mostrar_todas"],
+        parametros["hora_desde"],
+        parametros["cantidad_filas"],
+        guardadas_en_rango,
+    ):
+        filas.append(ultima_fila)
+        guardadas_en_rango += 1
+
+    integraciones: List[Dict] = []
+    iteracion = 0
+    evento = "Inicializacion"
+
+    while iteracion < max_iteraciones:
+        evento, hora_evento = _evento_minimo(estado["eventos"])
+        if math.isinf(hora_evento):
+            break
+
+        delta = hora_evento - estado["reloj"]
+        _actualizar_acumuladores_tiempo(estado, delta)
+        estado["reloj"] = hora_evento
+        iteracion += 1
+        _limpiar_variables_generadas(estado)
+
+        if evento == "Fin Simulacion":
+            ultima_fila = _crear_fila(iteracion, estado["reloj"], evento, estado)
+            break
+        if evento.startswith("Llegada"):
+            disciplina = evento.replace("Llegada ", "")
+            _procesar_llegada(
+                estado,
+                disciplina,
+                rng,
+                estado["reloj"],
+                int(parametros["capacidad_cola"]),
+                parametros_llegadas,
+                parametros_usos,
+            )
+        elif evento == "Fin Uso Cancha":
+            _procesar_fin_uso(
+                estado,
+                estado["reloj"],
+                parametros["objetivos_limpieza"],
+                float(parametros["h"]),
+                parametros["metodo_integracion"],
+                float(parametros.get("coeficiente_limpieza", 0.6)),
+                bool(parametros["guardar_pasos_integracion"]),
+                integraciones,
+            )
+        elif evento == "Fin Limpieza":
+            _procesar_fin_limpieza(estado, rng, estado["reloj"], parametros_usos)
+
+        ultima_fila = _crear_fila(iteracion, estado["reloj"], evento, estado)
+        if _debe_guardar_fila(
+            estado["reloj"],
+            parametros["mostrar_todas"],
+            parametros["hora_desde"],
+            parametros["cantidad_filas"],
+            guardadas_en_rango,
+        ):
+            filas.append(ultima_fila)
+            guardadas_en_rango += 1
+
+        if evento == "Fin Simulacion":
+            break
+
+    if not filas or filas[-1] != ultima_fila:
+        filas.append(ultima_fila)
+
+    tiempo_final = float(estado["reloj"])
+    return {
+        "vector_estado": pd.DataFrame(filas),
+        "integraciones": pd.DataFrame(integraciones).round(4),
+        "metricas": {
+            clave: round(valor, 4)
+            for clave, valor in calcular_metricas_finales(
+                estado,
+                tiempo_final,
+                float(parametros.get("minutos_por_dia", 1440.0)),
+            ).items()
+        },
+        "iteraciones": iteracion,
+        "tiempo_final": round(tiempo_final, 4),
+        "estado_final": estado,
+    }
