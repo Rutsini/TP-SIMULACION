@@ -230,6 +230,152 @@ def _mostrar_metricas(metricas: dict) -> None:
         columnas[indice].metric(clave, f"{valor:.4f}" if isinstance(valor, float) else valor)
 
 
+def _resumen_integraciones(integraciones: pd.DataFrame) -> pd.DataFrame:
+    columnas = [
+        "ID Limpieza",
+        "Disciplina",
+        "D Objetivo",
+        "C inicial",
+        "h",
+        "Metodo",
+        "Tiempo resultante de limpieza",
+        "Valor final D",
+        "Cantidad de pasos",
+        "Evento/Fila origen",
+    ]
+    columnas_presentes = [columna for columna in columnas if columna in integraciones.columns]
+    return integraciones[columnas_presentes].copy().round(4)
+
+
+def _detalle_integraciones_general(integraciones: pd.DataFrame) -> pd.DataFrame:
+    if "Pasos internos" not in integraciones.columns:
+        return pd.DataFrame()
+
+    filas = []
+    for _, integracion in integraciones.iterrows():
+        pasos = integracion.get("Pasos internos", [])
+        if not isinstance(pasos, list):
+            continue
+        for paso in pasos:
+            filas.append(
+                {
+                    "ID Limpieza": integracion.get("ID Limpieza", "-"),
+                    "Disciplina": integracion.get("Disciplina", "-"),
+                    "Metodo": integracion.get("Metodo", "-"),
+                    **paso,
+                }
+            )
+
+    if not filas:
+        return pd.DataFrame()
+
+    columnas = [
+        "ID Limpieza",
+        "Disciplina",
+        "Metodo",
+        "Paso",
+        "t actual",
+        "D actual",
+        "C",
+        "h",
+        "f(t,D)",
+        "k1",
+        "k2",
+        "k3",
+        "k4",
+        "Incremento",
+        "D siguiente",
+        "D Objetivo",
+        "Alcanza objetivo",
+    ]
+    return pd.DataFrame(filas).reindex(columns=columnas).fillna("-").round(4)
+
+
+def _detalle_integracion_para_mostrar(detalle: pd.DataFrame, metodo: str) -> pd.DataFrame:
+    if detalle.empty:
+        return detalle
+
+    if metodo == "RK4":
+        columnas = [
+            "Paso",
+            "t actual",
+            "D actual",
+            "C",
+            "h",
+            "k1",
+            "k2",
+            "k3",
+            "k4",
+            "Incremento",
+            "D siguiente",
+            "Alcanza objetivo",
+        ]
+        detalle_visual = detalle[columnas].copy()
+        return detalle_visual.rename(columns={"Incremento": "Incremento RK4"}).round(4)
+
+    columnas = [
+        "Paso",
+        "t actual",
+        "D actual",
+        "C",
+        "h",
+        "f(t,D)",
+        "Incremento",
+        "D siguiente",
+        "Alcanza objetivo",
+    ]
+    detalle_visual = detalle[columnas].copy()
+    return detalle_visual.rename(
+        columns={
+            "f(t,D)": "f(t,D) = 0.6*C + t",
+            "Incremento": "Incremento = h * f(t,D)",
+        }
+    ).round(4)
+
+
+def _mostrar_tablas_integracion(integraciones: pd.DataFrame) -> None:
+    st.subheader("Tablas de integracion")
+    if integraciones.empty:
+        st.info("Todavia no se realizaron limpiezas.")
+        return
+
+    resumen = _resumen_integraciones(integraciones)
+    st.dataframe(resumen, use_container_width=True, height=280)
+    st.download_button(
+        "Descargar resumen de integraciones en CSV",
+        data=resumen.to_csv(index=False).encode("utf-8-sig"),
+        file_name="resumen_integraciones.csv",
+        mime="text/csv",
+    )
+
+    detalle_general = _detalle_integraciones_general(integraciones)
+    if detalle_general.empty:
+        st.info("Active 'Guardar y mostrar detalle de integraciones' y vuelva a simular para ver los pasos internos.")
+        return
+
+    st.download_button(
+        "Descargar detalle de integraciones en CSV",
+        data=detalle_general.to_csv(index=False).encode("utf-8-sig"),
+        file_name="detalle_integraciones.csv",
+        mime="text/csv",
+    )
+
+    for _, integracion in integraciones.iterrows():
+        id_limpieza = integracion.get("ID Limpieza", "-")
+        disciplina = integracion.get("Disciplina", "-")
+        metodo = integracion.get("Metodo", "-")
+        detalle = detalle_general[detalle_general["ID Limpieza"] == id_limpieza]
+        if detalle.empty:
+            continue
+
+        with st.expander(f"Limpieza {id_limpieza} - {disciplina} - {metodo}"):
+            st.dataframe(
+                _detalle_integracion_para_mostrar(detalle, metodo),
+                use_container_width=True,
+                height=300,
+            )
+
+
 def _parametros_sidebar() -> dict:
     st.sidebar.header("Parametros")
     tiempo_simulacion = st.sidebar.number_input(
@@ -278,7 +424,7 @@ def _parametros_sidebar() -> dict:
     d_basket = st.sidebar.number_input("D objetivo Basket", min_value=0.0, value=300.0, step=10.0)
     capacidad_cola = st.sidebar.number_input("Capacidad maxima de cola", min_value=0, value=5, step=1)
     metodo_integracion = st.sidebar.selectbox("Metodo de integracion", ["Euler", "RK4"])
-    guardar_pasos_integracion = st.sidebar.checkbox("Guardar pasos internos de integracion", value=False)
+    guardar_pasos_integracion = st.sidebar.checkbox("Guardar y mostrar detalle de integraciones", value=True)
 
     with st.sidebar.expander("Parametros avanzados"):
         media_llegada_futbol = st.number_input("Media llegada Futbol", min_value=0.0001, value=600.0, step=10.0)
@@ -429,20 +575,7 @@ def main() -> None:
     else:
         st.warning("No se generaron filas para mostrar.")
 
-    st.subheader("Integraciones realizadas")
-    integraciones = resultado["integraciones"]
-    if not integraciones.empty:
-        st.dataframe(integraciones, use_container_width=True, height=280)
-        if "Pasos internos" in integraciones.columns:
-            pasos = []
-            for _, fila in integraciones.iterrows():
-                for paso in fila["Pasos internos"]:
-                    pasos.append({"ID Limpieza": fila["ID Limpieza"], **paso})
-            if pasos:
-                st.subheader("Pasos internos de integracion")
-                st.dataframe(pd.DataFrame(pasos).round(4), use_container_width=True, height=280)
-    else:
-        st.info("Todavia no se realizaron limpiezas.")
+    _mostrar_tablas_integracion(resultado["integraciones"])
 
     _mostrar_formulas()
 

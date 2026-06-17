@@ -158,6 +158,8 @@ def _procesar_llegada(
 
 def _procesar_fin_uso(
     estado: Dict,
+    iteracion: int,
+    evento: str,
     reloj: float,
     objetivos_limpieza: Dict[str, float],
     h: float,
@@ -180,7 +182,7 @@ def _procesar_fin_uso(
 
     c_inicial = cola_total(estado)
     d_objetivo = objetivos_limpieza[disciplina]
-    tiempo_limpieza, pasos, detalle = calcular_limpieza(
+    tiempo_limpieza, pasos, valor_final_d, detalle = calcular_limpieza(
         d_objetivo=d_objetivo,
         c_inicial=c_inicial,
         h=h,
@@ -189,7 +191,8 @@ def _procesar_fin_uso(
         guardar_pasos=guardar_pasos_integracion,
     )
 
-    limpieza_id = estado["proximo_id_limpieza"]
+    limpieza_numero = estado["proximo_id_limpieza"]
+    limpieza_id = f"L{limpieza_numero}"
     estado["proximo_id_limpieza"] += 1
     estado["cantidad_limpiezas"] += 1
     estado["estado_cancha"] = "En Limpieza"
@@ -211,14 +214,14 @@ def _procesar_fin_uso(
     fila_integracion = {
         "ID Limpieza": limpieza_id,
         "Disciplina": disciplina,
-        "D objetivo": d_objetivo,
+        "D Objetivo": d_objetivo,
         "C inicial": c_inicial,
         "h": h,
         "Metodo": metodo,
-        "Coeficiente C": coeficiente_limpieza,
-        "Valor resultante de la integracion": tiempo_limpieza,
         "Tiempo resultante de limpieza": tiempo_limpieza,
+        "Valor final D": valor_final_d,
         "Cantidad de pasos": pasos,
+        "Evento/Fila origen": f"{iteracion} - {evento}",
     }
     if guardar_pasos_integracion:
         fila_integracion["Pasos internos"] = detalle
@@ -343,6 +346,8 @@ def simular(parametros: Dict) -> Dict:
         elif evento == "Fin Uso Cancha":
             _procesar_fin_uso(
                 estado,
+                iteracion,
+                evento,
                 estado["reloj"],
                 parametros["objetivos_limpieza"],
                 float(parametros["h"]),
