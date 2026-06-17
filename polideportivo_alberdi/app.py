@@ -538,7 +538,11 @@ def main() -> None:
 
     if st.sidebar.button("Simular", type="primary", use_container_width=True):
         with st.spinner("Simulando eventos..."):
-            resultado = simular(parametros)
+            try:
+                resultado = simular(parametros)
+            except RuntimeError as error:
+                st.error(str(error))
+                return
         st.session_state["resultado"] = resultado
 
     resultado = st.session_state.get("resultado")

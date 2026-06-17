@@ -317,7 +317,13 @@ def simular(parametros: Dict) -> Dict:
     iteracion = 0
     evento = "Inicializacion"
 
-    while iteracion < max_iteraciones:
+    while True:
+        if iteracion >= max_iteraciones:
+            raise RuntimeError(
+                "Se alcanzo el maximo de iteraciones antes de llegar al evento Fin Simulacion. "
+                "Aumente el Maximo N de iteraciones para simular internamente hasta X."
+            )
+
         evento, hora_evento = _evento_minimo(estado["eventos"])
         if math.isinf(hora_evento):
             break
@@ -331,6 +337,8 @@ def simular(parametros: Dict) -> Dict:
 
         if evento == "Fin Simulacion":
             ultima_fila = _crear_fila(iteracion, estado["reloj"], evento, estado)
+            if not filas or filas[-1] != ultima_fila:
+                filas.append(ultima_fila)
             break
         if evento.startswith("Llegada"):
             disciplina = evento.replace("Llegada ", "")
@@ -372,9 +380,6 @@ def simular(parametros: Dict) -> Dict:
 
         if evento == "Fin Simulacion":
             break
-
-    if not filas or filas[-1] != ultima_fila:
-        filas.append(ultima_fila)
 
     tiempo_final = float(estado["reloj"])
     return {
