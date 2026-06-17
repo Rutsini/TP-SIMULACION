@@ -48,11 +48,17 @@ def _parsear_objetos_temporales(resumen) -> list[dict]:
         objetos.append(
             {
                 "equipo": equipo,
+                "numero": _numero_equipo(equipo),
                 "disciplina": disciplina,
                 "estado": _estado_objeto_legible(estado),
             }
         )
     return objetos
+
+
+def _numero_equipo(equipo: str) -> int:
+    digitos = "".join(caracter for caracter in str(equipo) if caracter.isdigit())
+    return int(digitos) if digitos else 0
 
 
 def _orden_cola_futbol_basket(resumen) -> str:
@@ -100,22 +106,44 @@ def _serie_orden_cola_futbol_basket(df: pd.DataFrame) -> pd.Series:
     )
 
 
-def _columnas_objetos_temporales(df: pd.DataFrame) -> dict[tuple[str, str], pd.Series]:
+def _equipos_temporales_visibles(df: pd.DataFrame, max_objetos_temporales: int | None) -> list[str]:
+    equipos = set()
+    if "Objetos Temporales Activos" not in df.columns:
+        return []
+
+    for resumen in df["Objetos Temporales Activos"]:
+        for objeto in _parsear_objetos_temporales(resumen):
+            equipos.add(objeto["equipo"])
+
+    equipos_ordenados = sorted(equipos, key=_numero_equipo)
+    if max_objetos_temporales is not None:
+        return equipos_ordenados[:max_objetos_temporales]
+    return equipos_ordenados
+
+
+def _columnas_objetos_temporales(
+    df: pd.DataFrame,
+    max_objetos_temporales: int | None = None,
+) -> dict[tuple[str, str], pd.Series]:
     columnas = {}
     horas_llegada = _mapear_horas_llegada_visibles(df)
+    equipos = _equipos_temporales_visibles(df, max_objetos_temporales)
 
-    for numero_objeto in range(1, 4):
+    for equipo in equipos:
         tipos = []
         estados = []
         horas = []
         for _, fila in df.iterrows():
-            objetos = _parsear_objetos_temporales(fila.get("Objetos Temporales Activos", ""))
-            objeto = objetos[numero_objeto - 1] if numero_objeto <= len(objetos) else None
+            objetos = {
+                objeto["equipo"]: objeto
+                for objeto in _parsear_objetos_temporales(fila.get("Objetos Temporales Activos", ""))
+            }
+            objeto = objetos.get(equipo)
             tipos.append(objeto["disciplina"] if objeto else "-")
             estados.append(objeto["estado"] if objeto else "-")
-            horas.append(horas_llegada.get(objeto["equipo"], "-") if objeto else "-")
+            horas.append(horas_llegada.get(equipo, "-") if objeto else "-")
 
-        grupo = f"OBJETOS TEMPORALES - Equipo {numero_objeto}"
+        grupo = f"OBJETOS TEMPORALES - Equipo {_numero_equipo(equipo)}"
         columnas[(grupo, "Tipo")] = pd.Series(tipos, index=df.index)
         columnas[(grupo, "Estado")] = pd.Series(estados, index=df.index)
         columnas[(grupo, "Hora Llegada")] = pd.Series(horas, index=df.index)
@@ -123,7 +151,10 @@ def _columnas_objetos_temporales(df: pd.DataFrame) -> dict[tuple[str, str], pd.S
     return columnas
 
 
-def preparar_vector_con_encabezados(df: pd.DataFrame) -> pd.DataFrame:
+def preparar_vector_con_encabezados(
+    df: pd.DataFrame,
+    max_objetos_temporales: int | None = None,
+) -> pd.DataFrame:
     df_base = df.copy()
     columnas_visuales = {
         ("", "N"): _serie_desde_columna(df_base, "N"),
@@ -173,7 +204,7 @@ def preparar_vector_con_encabezados(df: pd.DataFrame) -> pd.DataFrame:
         ("Orden Cola Fútbol/Basket", "Orden Cola Fútbol/Basket"): _serie_orden_cola_futbol_basket(df_base),
     }
 
-    columnas_visuales.update(_columnas_objetos_temporales(df_base))
+    columnas_visuales.update(_columnas_objetos_temporales(df_base, max_objetos_temporales))
     columnas_visuales[("Objetos Temporales", "Resumen")] = _serie_desde_columna(
         df_base,
         "Objetos Temporales Activos",
@@ -218,6 +249,12 @@ def _parametros_sidebar() -> dict:
     cantidad_filas = st.sidebar.number_input("Cantidad i de filas a mostrar", min_value=1, value=200, step=10)
     mostrar_todas = st.sidebar.checkbox("Mostrar todas las filas", value=False)
     mostrar_encabezados_agrupados = st.sidebar.checkbox("Mostrar encabezados agrupados", value=True)
+    max_objetos_temporales = st.sidebar.number_input(
+        "Cantidad maxima de objetos temporales a mostrar (0 = todos)",
+        min_value=0,
+        value=0,
+        step=1,
+    )
 
     semilla_texto = st.sidebar.text_input("Semilla aleatoria opcional", value="")
     semilla = None
@@ -274,6 +311,7 @@ def _parametros_sidebar() -> dict:
         "cantidad_filas": int(cantidad_filas),
         "mostrar_todas": mostrar_todas,
         "mostrar_encabezados_agrupados": mostrar_encabezados_agrupados,
+        "max_objetos_temporales": None if int(max_objetos_temporales) == 0 else int(max_objetos_temporales),
         "semilla": semilla,
         "h": h,
         "objetivos_limpieza": {
@@ -381,7 +419,10 @@ def main() -> None:
     vector_estado = resultado["vector_estado"]
     if not vector_estado.empty:
         if parametros["mostrar_encabezados_agrupados"]:
-            vector_estado_visual = preparar_vector_con_encabezados(vector_estado)
+            vector_estado_visual = preparar_vector_con_encabezados(
+                vector_estado,
+                max_objetos_temporales=parametros["max_objetos_temporales"],
+            )
             st.dataframe(vector_estado_visual, use_container_width=True, height=600)
         else:
             st.dataframe(vector_estado, use_container_width=True, height=600)
