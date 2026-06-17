@@ -2,88 +2,10 @@
 
 from __future__ import annotations
 
-from html import escape
-
 import pandas as pd
 import streamlit as st
 
 from simulacion.motor import simular
-
-
-def aplicar_supertitulos_vector(df: pd.DataFrame) -> pd.DataFrame:
-    grupos = {
-        "Evento": [
-            "N",
-            "Reloj",
-            "Evento",
-            "RND usado",
-            "Valor generado",
-            "Tipo variable generada",
-        ],
-        "Llegada GF": [
-            "Proxima Llegada Futbol",
-        ],
-        "Llegada GH": [
-            "Proxima Llegada HandBall",
-        ],
-        "Llegada GB": [
-            "Proxima Llegada Basket",
-        ],
-        "Cancha": [
-            "Estado Cancha",
-            "Disciplina Actual",
-            "ID Grupo Actual",
-            "Ultimo RND Uso",
-            "Proximo Fin Uso",
-        ],
-        "Limpieza": [
-            "ID Limpieza",
-            "Metodo Integracion",
-            "h Integracion",
-            "Valor Integracion Limpieza",
-            "Tiempo Limpieza Generado",
-            "D Objetivo Limpieza",
-            "C al iniciar limpieza",
-            "Proximo Fin Limpieza",
-        ],
-        "Colas": [
-            "Cola Futbol",
-            "Cola HandBall",
-            "Cola Basket",
-            "Cola Total",
-        ],
-        "Acumuladores y Contadores": [
-            "Acum Espera Futbol",
-            "Acum Espera HandBall",
-            "Acum Espera Basket",
-            "Cantidad Atendidos Futbol",
-            "Cantidad Atendidos HandBall",
-            "Cantidad Atendidos Basket",
-            "Retirados Futbol",
-            "Retirados HandBall",
-            "Retirados Basket",
-            "Tiempo Libre Acumulado",
-            "Tiempo Ocupado Acumulado",
-            "Cantidad Limpiezas",
-            "Maxima Cola Total",
-        ],
-        "Objetos Temporales": [
-            "Objetos Temporales Activos",
-        ],
-    }
-
-    columnas_con_grupo = []
-    for columna in df.columns:
-        grupo_encontrado = "Otros"
-        for grupo, columnas in grupos.items():
-            if columna in columnas:
-                grupo_encontrado = grupo
-                break
-        columnas_con_grupo.append((grupo_encontrado, columna))
-
-    df_visual = df.copy()
-    df_visual.columns = pd.MultiIndex.from_tuples(columnas_con_grupo)
-    return df_visual
 
 
 def _dividir_valores_generados(valor) -> list[str]:
@@ -155,273 +77,111 @@ def _mapear_horas_llegada_visibles(df: pd.DataFrame) -> dict[str, str]:
     return horas
 
 
-def _preparar_vector_excel(
-    df: pd.DataFrame,
-    mostrar_objetos_en_columnas: bool,
-    max_objetos_temporales: int,
-) -> pd.DataFrame:
-    df_visual = df.copy()
-
-    for disciplina in ("Futbol", "HandBall", "Basket"):
-        rnds = []
-        tiempos = []
-        for _, fila in df_visual.iterrows():
-            rnd, tiempo = _buscar_variable_generada(fila, f"Llegada {disciplina}")
-            rnds.append(rnd)
-            tiempos.append(tiempo)
-        df_visual[f"RND Llegada {disciplina}"] = rnds
-        df_visual[f"Tiempo Entre Llegada {disciplina}"] = tiempos
-
-    rnds_uso = []
-    tiempos_uso = []
-    for _, fila in df_visual.iterrows():
-        rnd_uso = ""
-        tiempo_uso = ""
-        for disciplina in ("Futbol", "HandBall", "Basket"):
-            rnd, tiempo = _buscar_variable_generada(fila, f"Uso {disciplina}")
-            if rnd or tiempo:
-                rnd_uso = rnd
-                tiempo_uso = tiempo
-                break
-        rnds_uso.append(rnd_uso)
-        tiempos_uso.append(tiempo_uso)
-    df_visual["RND Uso"] = rnds_uso
-    df_visual["Tiempo de Uso"] = tiempos_uso
-
-    if "Objetos Temporales Activos" in df_visual.columns:
-        df_visual["Orden Cola Futbol/Basket"] = df_visual["Objetos Temporales Activos"].apply(
-            _orden_cola_futbol_basket
-        )
-    else:
-        df_visual["Orden Cola Futbol/Basket"] = ""
-
-    if mostrar_objetos_en_columnas:
-        horas_llegada = _mapear_horas_llegada_visibles(df_visual)
-        for numero_objeto in range(1, max_objetos_temporales + 1):
-            equipos = []
-            tipos = []
-            estados = []
-            horas = []
-            for _, fila in df_visual.iterrows():
-                objetos = _parsear_objetos_temporales(fila.get("Objetos Temporales Activos", ""))
-                objeto = objetos[numero_objeto - 1] if numero_objeto <= len(objetos) else None
-                equipos.append(objeto["equipo"] if objeto else "")
-                tipos.append(objeto["disciplina"] if objeto else "")
-                estados.append(objeto["estado"] if objeto else "")
-                horas.append(horas_llegada.get(objeto["equipo"], "") if objeto else "")
-            df_visual[f"Equipo {numero_objeto}"] = equipos
-            df_visual[f"Equipo {numero_objeto} Tipo"] = tipos
-            df_visual[f"Equipo {numero_objeto} Estado"] = estados
-            df_visual[f"Equipo {numero_objeto} Hora Llegada"] = horas
-
-    return df_visual
+def _serie_desde_columna(df: pd.DataFrame, columna: str, valor_por_defecto: str = "-") -> pd.Series:
+    if columna in df.columns:
+        return df[columna]
+    return pd.Series([valor_por_defecto] * len(df), index=df.index)
 
 
-def _bloques_vector_excel(mostrar_objetos_en_columnas: bool, max_objetos_temporales: int) -> list[tuple[str, list[str]]]:
-    bloques = [
-        ("Evento", ["N", "Evento", "Reloj"]),
-        (
-            "Llegada GF",
-            ["RND Llegada Futbol", "Tiempo Entre Llegada Futbol", "Proxima Llegada Futbol"],
-        ),
-        (
-            "Llegada GH",
-            ["RND Llegada HandBall", "Tiempo Entre Llegada HandBall", "Proxima Llegada HandBall"],
-        ),
-        (
-            "Llegada GB",
-            ["RND Llegada Basket", "Tiempo Entre Llegada Basket", "Proxima Llegada Basket"],
-        ),
-        (
-            "Cancha",
-            [
-                "Estado Cancha",
-                "Disciplina Actual",
-                "ID Grupo Actual",
-                "RND Uso",
-                "Tiempo de Uso",
-                "Proximo Fin Uso",
-                "Tiempo Limpieza Generado",
-                "Proximo Fin Limpieza",
-                "Cola Futbol",
-                "Cola HandBall",
-                "Cola Basket",
-            ],
-        ),
-        (
-            "Limpieza",
-            [
-                "ID Limpieza",
-                "Metodo Integracion",
-                "h Integracion",
-                "Valor Integracion Limpieza",
-                "D Objetivo Limpieza",
-                "C al iniciar limpieza",
-            ],
-        ),
-        (
-            "Acumuladores / Contadores",
-            [
-                "Acum Espera Futbol",
-                "Acum Espera HandBall",
-                "Acum Espera Basket",
-                "Cantidad Limpiezas",
-                "Tiempo Libre Acumulado",
-                "Cantidad Atendidos Futbol",
-                "Cantidad Atendidos HandBall",
-                "Cantidad Atendidos Basket",
-                "Retirados Futbol",
-                "Retirados HandBall",
-                "Retirados Basket",
-                "Maxima Cola Total",
-            ],
-        ),
-        ("Orden Cola Futbol/Basket", ["Orden Cola Futbol/Basket"]),
-    ]
-
-    if mostrar_objetos_en_columnas:
-        columnas_objetos = []
-        for numero_objeto in range(1, max_objetos_temporales + 1):
-            columnas_objetos.extend(
-                [
-                    f"Equipo {numero_objeto}",
-                    f"Equipo {numero_objeto} Tipo",
-                    f"Equipo {numero_objeto} Estado",
-                    f"Equipo {numero_objeto} Hora Llegada",
-                ]
-            )
-        bloques.append(("Objetos Temporales", columnas_objetos + ["Objetos Temporales Activos"]))
-    else:
-        bloques.append(("Objetos Temporales", ["Objetos Temporales Activos"]))
-
-    return bloques
+def _serie_variable_generada(df: pd.DataFrame, tipo_buscado: str, posicion: int) -> pd.Series:
+    valores = []
+    for _, fila in df.iterrows():
+        rnd, valor = _buscar_variable_generada(fila, tipo_buscado)
+        valores.append(rnd if posicion == 0 else valor)
+    return pd.Series(valores, index=df.index).replace("", "-")
 
 
-def _color_bloque(nombre: str) -> str:
-    colores = {
-        "Evento": "#f3f4f6",
-        "Llegada GF": "#dbeafe",
-        "Llegada GH": "#dbeafe",
-        "Llegada GB": "#dbeafe",
-        "Cancha": "#fee2e2",
-        "Limpieza": "#fef3c7",
-        "Acumuladores / Contadores": "#e5e7eb",
-        "Orden Cola Futbol/Basket": "#ede9fe",
-        "Objetos Temporales": "#dcfce7",
-        "Otros": "#f8fafc",
-    }
-    return colores.get(nombre, "#f8fafc")
+def _serie_orden_cola_futbol_basket(df: pd.DataFrame) -> pd.Series:
+    if "Objetos Temporales Activos" not in df.columns:
+        return pd.Series(["-"] * len(df), index=df.index)
 
-
-def renderizar_vector_excel(
-    df: pd.DataFrame,
-    mostrar_objetos_en_columnas: bool = False,
-    max_objetos_temporales: int = 3,
-) -> str:
-    df_visual = _preparar_vector_excel(
-        df,
-        mostrar_objetos_en_columnas=mostrar_objetos_en_columnas,
-        max_objetos_temporales=max_objetos_temporales,
+    return df["Objetos Temporales Activos"].apply(
+        lambda resumen: _orden_cola_futbol_basket(resumen) or "-"
     )
-    bloques = _bloques_vector_excel(mostrar_objetos_en_columnas, max_objetos_temporales)
 
-    columnas_ordenadas = []
-    grupos_por_columna = {}
-    for grupo, columnas in bloques:
-        for columna in columnas:
-            if columna in df_visual.columns and columna not in columnas_ordenadas:
-                columnas_ordenadas.append(columna)
-                grupos_por_columna[columna] = grupo
 
-    columnas_otros = [
-        columna
-        for columna in df_visual.columns
-        if columna not in columnas_ordenadas
-    ]
-    if columnas_otros:
-        for columna in columnas_otros:
-            grupos_por_columna[columna] = "Otros"
-        columnas_ordenadas.extend(columnas_otros)
-        bloques.append(("Otros", columnas_otros))
+def _columnas_objetos_temporales(df: pd.DataFrame) -> dict[tuple[str, str], pd.Series]:
+    columnas = {}
+    horas_llegada = _mapear_horas_llegada_visibles(df)
 
-    encabezado_grupos = []
-    for grupo, columnas in bloques:
-        columnas_presentes = [columna for columna in columnas if columna in columnas_ordenadas]
-        if not columnas_presentes:
-            continue
-        color = _color_bloque(grupo)
-        encabezado_grupos.append(
-            f'<th colspan="{len(columnas_presentes)}" style="background:{color};">{escape(grupo)}</th>'
-        )
+    for numero_objeto in range(1, 4):
+        tipos = []
+        estados = []
+        horas = []
+        for _, fila in df.iterrows():
+            objetos = _parsear_objetos_temporales(fila.get("Objetos Temporales Activos", ""))
+            objeto = objetos[numero_objeto - 1] if numero_objeto <= len(objetos) else None
+            tipos.append(objeto["disciplina"] if objeto else "-")
+            estados.append(objeto["estado"] if objeto else "-")
+            horas.append(horas_llegada.get(objeto["equipo"], "-") if objeto else "-")
 
-    encabezado_columnas = []
-    for columna in columnas_ordenadas:
-        color = _color_bloque(grupos_por_columna[columna])
-        encabezado_columnas.append(
-            f'<th style="background:{color};">{escape(str(columna))}</th>'
-        )
+        grupo = f"OBJETOS TEMPORALES - Equipo {numero_objeto}"
+        columnas[(grupo, "Tipo")] = pd.Series(tipos, index=df.index)
+        columnas[(grupo, "Estado")] = pd.Series(estados, index=df.index)
+        columnas[(grupo, "Hora Llegada")] = pd.Series(horas, index=df.index)
 
-    filas_html = []
-    for _, fila in df_visual[columnas_ordenadas].iterrows():
-        celdas = []
-        for columna in columnas_ordenadas:
-            color = _color_bloque(grupos_por_columna[columna])
-            valor = "" if pd.isna(fila[columna]) else fila[columna]
-            celdas.append(
-                f'<td style="background:{color};">{escape(str(valor))}</td>'
-            )
-        filas_html.append(f"<tr>{''.join(celdas)}</tr>")
+    return columnas
 
-    return f"""
-    <style>
-        .vector-excel-container {{
-            overflow: auto;
-            max-height: 650px;
-            border: 1px solid #c7ccd1;
-            border-radius: 4px;
-        }}
-        .vector-excel {{
-            border-collapse: collapse;
-            width: max-content;
-            min-width: 100%;
-            font-size: 12px;
-            line-height: 1.25;
-            color: #111827;
-        }}
-        .vector-excel th,
-        .vector-excel td {{
-            border: 1px solid #c7ccd1;
-            padding: 4px 6px;
-            text-align: center;
-            vertical-align: middle;
-            white-space: nowrap;
-            min-width: 86px;
-        }}
-        .vector-excel thead tr:first-child th {{
-            position: sticky;
-            top: 0;
-            z-index: 3;
-            font-weight: 700;
-        }}
-        .vector-excel thead tr:nth-child(2) th {{
-            position: sticky;
-            top: 27px;
-            z-index: 2;
-            font-weight: 600;
-        }}
-    </style>
-    <div class="vector-excel-container">
-        <table class="vector-excel">
-            <thead>
-                <tr>{''.join(encabezado_grupos)}</tr>
-                <tr>{''.join(encabezado_columnas)}</tr>
-            </thead>
-            <tbody>
-                {''.join(filas_html)}
-            </tbody>
-        </table>
-    </div>
-    """
+
+def preparar_vector_con_encabezados(df: pd.DataFrame) -> pd.DataFrame:
+    df_base = df.copy()
+    columnas_visuales = {
+        ("", "N"): _serie_desde_columna(df_base, "N"),
+        ("", "Evento"): _serie_desde_columna(df_base, "Evento"),
+        ("", "Reloj"): _serie_desde_columna(df_base, "Reloj"),
+        ("Llegada GF", "Rnd"): _serie_variable_generada(df_base, "Llegada Futbol", 0),
+        ("Llegada GF", "Tiempo Entre Llegada"): _serie_variable_generada(df_base, "Llegada Futbol", 1),
+        ("Llegada GF", "Próxima Llegada"): _serie_desde_columna(df_base, "Proxima Llegada Futbol"),
+        ("Llegada GH", "Rnd"): _serie_variable_generada(df_base, "Llegada HandBall", 0),
+        ("Llegada GH", "Tiempo Entre Llegada"): _serie_variable_generada(df_base, "Llegada HandBall", 1),
+        ("Llegada GH", "Próxima Llegada"): _serie_desde_columna(df_base, "Proxima Llegada HandBall"),
+        ("Llegada GB", "Rnd"): _serie_variable_generada(df_base, "Llegada Basket", 0),
+        ("Llegada GB", "Tiempo Entre Llegada"): _serie_variable_generada(df_base, "Llegada Basket", 1),
+        ("Llegada GB", "Próxima Llegada"): _serie_desde_columna(df_base, "Proxima Llegada Basket"),
+        ("Cancha", "Estado"): _serie_desde_columna(df_base, "Estado Cancha"),
+        ("Cancha", "Disciplina Actual"): _serie_desde_columna(df_base, "Disciplina Actual"),
+        ("Cancha", "RND Uso"): pd.concat(
+            [
+                _serie_variable_generada(df_base, "Uso Futbol", 0),
+                _serie_variable_generada(df_base, "Uso HandBall", 0),
+                _serie_variable_generada(df_base, "Uso Basket", 0),
+            ],
+            axis=1,
+        ).apply(lambda fila: next((valor for valor in fila if valor != "-"), "-"), axis=1),
+        ("Cancha", "Tiempo de uso"): pd.concat(
+            [
+                _serie_variable_generada(df_base, "Uso Futbol", 1),
+                _serie_variable_generada(df_base, "Uso HandBall", 1),
+                _serie_variable_generada(df_base, "Uso Basket", 1),
+            ],
+            axis=1,
+        ).apply(lambda fila: next((valor for valor in fila if valor != "-"), "-"), axis=1),
+        ("Cancha", "Próximo fin de uso"): _serie_desde_columna(df_base, "Proximo Fin Uso"),
+        ("Cancha", "Tiempo de Limpieza"): _serie_desde_columna(df_base, "Tiempo Limpieza Generado"),
+        ("Cancha", "Próximo fin de limpieza"): _serie_desde_columna(df_base, "Proximo Fin Limpieza"),
+        ("Cancha", "Cola GF"): _serie_desde_columna(df_base, "Cola Futbol"),
+        ("Cancha", "Cola GH"): _serie_desde_columna(df_base, "Cola HandBall"),
+        ("Cancha", "Cola GB"): _serie_desde_columna(df_base, "Cola Basket"),
+        ("Acumuladores / Contadores", "Acumulador Tiempo Espera GF"): _serie_desde_columna(df_base, "Acum Espera Futbol"),
+        ("Acumuladores / Contadores", "Acumulador Tiempo Espera GH"): _serie_desde_columna(df_base, "Acum Espera HandBall"),
+        ("Acumuladores / Contadores", "Acumulador Tiempo Espera GB"): _serie_desde_columna(df_base, "Acum Espera Basket"),
+        ("Acumuladores / Contadores", "Contador Limpiezas"): _serie_desde_columna(df_base, "Cantidad Limpiezas"),
+        ("Acumuladores / Contadores", "Acumulador Tiempo Libre Cancha"): _serie_desde_columna(df_base, "Tiempo Libre Acumulado"),
+        ("Acumuladores / Contadores", "Contador GF Atendidos"): _serie_desde_columna(df_base, "Cantidad Atendidos Futbol"),
+        ("Acumuladores / Contadores", "Contador GH Atendidos"): _serie_desde_columna(df_base, "Cantidad Atendidos HandBall"),
+        ("Acumuladores / Contadores", "Contador GB Atendidos"): _serie_desde_columna(df_base, "Cantidad Atendidos Basket"),
+        ("Orden Cola Fútbol/Basket", "Orden Cola Fútbol/Basket"): _serie_orden_cola_futbol_basket(df_base),
+    }
+
+    columnas_visuales.update(_columnas_objetos_temporales(df_base))
+    columnas_visuales[("Objetos Temporales", "Resumen")] = _serie_desde_columna(
+        df_base,
+        "Objetos Temporales Activos",
+    )
+
+    df_visual = pd.DataFrame(columnas_visuales, index=df_base.index).fillna("-")
+    df_visual.columns = pd.MultiIndex.from_tuples(df_visual.columns)
+    return df_visual
 
 
 def _mostrar_metricas(metricas: dict) -> None:
@@ -457,21 +217,7 @@ def _parametros_sidebar() -> dict:
     hora_desde = st.sidebar.number_input("Hora j desde donde mostrar", min_value=0.0, value=0.0, step=60.0)
     cantidad_filas = st.sidebar.number_input("Cantidad i de filas a mostrar", min_value=1, value=200, step=10)
     mostrar_todas = st.sidebar.checkbox("Mostrar todas las filas", value=False)
-    mostrar_vector_excel = st.sidebar.checkbox("Mostrar vector con formato tipo Excel", value=True)
-    formato_objetos_temporales = st.sidebar.radio(
-        "Objetos temporales",
-        ["Resumen", "Columnas"],
-        horizontal=True,
-    )
-    max_objetos_temporales = 3
-    if formato_objetos_temporales == "Columnas":
-        max_objetos_temporales = st.sidebar.number_input(
-            "Cantidad maxima de objetos temporales a mostrar como columnas",
-            min_value=1,
-            max_value=20,
-            value=3,
-            step=1,
-        )
+    mostrar_encabezados_agrupados = st.sidebar.checkbox("Mostrar encabezados agrupados", value=True)
 
     semilla_texto = st.sidebar.text_input("Semilla aleatoria opcional", value="")
     semilla = None
@@ -527,9 +273,7 @@ def _parametros_sidebar() -> dict:
         "hora_desde": hora_desde,
         "cantidad_filas": int(cantidad_filas),
         "mostrar_todas": mostrar_todas,
-        "mostrar_vector_excel": mostrar_vector_excel,
-        "mostrar_objetos_en_columnas": formato_objetos_temporales == "Columnas",
-        "max_objetos_temporales": int(max_objetos_temporales),
+        "mostrar_encabezados_agrupados": mostrar_encabezados_agrupados,
         "semilla": semilla,
         "h": h,
         "objetivos_limpieza": {
@@ -636,15 +380,11 @@ def main() -> None:
         )
     vector_estado = resultado["vector_estado"]
     if not vector_estado.empty:
-        if parametros["mostrar_vector_excel"]:
-            html_vector = renderizar_vector_excel(
-                vector_estado,
-                mostrar_objetos_en_columnas=parametros["mostrar_objetos_en_columnas"],
-                max_objetos_temporales=parametros["max_objetos_temporales"],
-            )
-            st.markdown(html_vector, unsafe_allow_html=True)
+        if parametros["mostrar_encabezados_agrupados"]:
+            vector_estado_visual = preparar_vector_con_encabezados(vector_estado)
+            st.dataframe(vector_estado_visual, use_container_width=True, height=600)
         else:
-            st.dataframe(vector_estado, use_container_width=True, height=820)
+            st.dataframe(vector_estado, use_container_width=True, height=600)
     else:
         st.warning("No se generaron filas para mostrar.")
 
