@@ -79,7 +79,7 @@ def cola_total(estado: Dict) -> int:
     return sum(len(estado["colas"][disciplina]) for disciplina in DISCIPLINAS)
 
 
-def seleccionar_proximo_grupo(estado: Dict) -> Optional[Dict]:
+def elegir_siguiente_grupo(estado: Dict) -> Optional[Dict]:
     """Elige el proximo grupo respetando prioridad y orden entre Futbol/Basket."""
     candidatos_prioritarios: List[Dict] = []
     for disciplina in ("Futbol", "Basket"):
@@ -97,11 +97,6 @@ def seleccionar_proximo_grupo(estado: Dict) -> Optional[Dict]:
         return estado["objetos"][grupo_id]
 
     return None
-
-
-def elegir_siguiente_grupo(estado: Dict) -> Optional[Dict]:
-    """Alias mantenido para dejar claro el nombre pedido por el enunciado."""
-    return seleccionar_proximo_grupo(estado)
 
 
 def resumen_objetos_activos(estado: Dict) -> str:

@@ -16,7 +16,7 @@ from .estado import (
     crear_estado_inicial,
     crear_grupo,
     resumen_objetos_activos,
-    seleccionar_proximo_grupo,
+    elegir_siguiente_grupo,
 )
 from .integracion import calcular_limpieza
 from .metricas import calcular_metricas_finales
@@ -117,7 +117,7 @@ def _iniciar_uso_si_corresponde(
     if estado["estado_cancha"] != "Libre":
         return
 
-    grupo = seleccionar_proximo_grupo(estado)
+    grupo = elegir_siguiente_grupo(estado)
     if grupo is None:
         estado["disciplina_actual"] = ""
         estado["grupo_actual"] = None

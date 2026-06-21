@@ -22,11 +22,7 @@ def uniforme(a: float, b: float, rng: np.random.Generator) -> Tuple[float, float
     return valor, rnd
 
 
-def generar_llegada(
-    disciplina: str,
-    rng: np.random.Generator,
-    parametros: Dict[str, Dict[str, float]],
-) -> Tuple[float, float]:
+def generar_llegada(disciplina: str, rng: np.random.Generator, parametros: Dict[str, Dict[str, float]],) -> Tuple[float, float]:
     """Genera el tiempo hasta la proxima llegada para una disciplina."""
     if disciplina == "Futbol":
         return exponencial_negativa(parametros["Futbol"]["media"], rng)
@@ -37,11 +33,7 @@ def generar_llegada(
     raise ValueError(f"Disciplina desconocida: {disciplina}")
 
 
-def generar_uso(
-    disciplina: str,
-    rng: np.random.Generator,
-    parametros: Dict[str, Dict[str, float]],
-) -> Tuple[float, float]:
+def generar_uso(disciplina: str, rng: np.random.Generator, parametros: Dict[str, Dict[str, float]], ) -> Tuple[float, float]:
     """Genera el tiempo de uso de cancha para una disciplina."""
     if disciplina not in parametros:
         raise ValueError(f"Disciplina desconocida: {disciplina}")

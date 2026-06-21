@@ -189,6 +189,7 @@ def preparar_vector_con_encabezados(
         ).apply(lambda fila: next((valor for valor in fila if valor != "-"), "-"), axis=1),
         ("Cancha", "Próximo fin de uso"): _serie_desde_columna(df_base, "Proximo Fin Uso"),
         ("Cancha", "Tiempo de Limpieza"): _serie_desde_columna(df_base, "Tiempo Limpieza Generado"),
+        ("Cancha", "ID limpieza"): _serie_desde_columna(df_base, "ID Limpieza"),
         ("Cancha", "Próximo fin de limpieza"): _serie_desde_columna(df_base, "Proximo Fin Limpieza"),
         ("Cancha", "Cola GF"): _serie_desde_columna(df_base, "Cola Futbol"),
         ("Cancha", "Cola GH"): _serie_desde_columna(df_base, "Cola HandBall"),

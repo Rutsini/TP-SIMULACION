@@ -7,11 +7,8 @@ from typing import Dict
 from .estado import DISCIPLINAS
 
 
-def calcular_metricas_finales(
-    estado: Dict,
-    tiempo_simulado: float,
-) -> Dict[str, float]:
-    """Calcula solo las metricas finales pedidas por el enunciado."""
+def calcular_metricas_finales(estado: Dict, tiempo_simulado: float, ) -> Dict[str, float]:
+    """Calcula solo las metricas finales."""
     dias = tiempo_simulado / 1440 if tiempo_simulado > 0 else 0
     metricas = {}
 
