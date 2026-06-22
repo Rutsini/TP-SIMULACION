@@ -342,24 +342,11 @@ def _mostrar_tablas_integracion(integraciones: pd.DataFrame) -> None:
 
     resumen = _resumen_integraciones(integraciones)
     st.dataframe(resumen, use_container_width=True, height=280)
-    st.download_button(
-        "Descargar resumen de integraciones en CSV",
-        data=resumen.to_csv(index=False).encode("utf-8-sig"),
-        file_name="resumen_integraciones.csv",
-        mime="text/csv",
-    )
 
     detalle_general = _detalle_integraciones_general(integraciones)
     if detalle_general.empty:
         st.info("Active 'Guardar y mostrar detalle de integraciones' y vuelva a simular para ver los pasos internos.")
         return
-
-    st.download_button(
-        "Descargar detalle de integraciones en CSV",
-        data=detalle_general.to_csv(index=False).encode("utf-8-sig"),
-        file_name="detalle_integraciones.csv",
-        mime="text/csv",
-    )
 
     for _, integracion in integraciones.iterrows():
         id_limpieza = integracion.get("ID Limpieza", "-")
