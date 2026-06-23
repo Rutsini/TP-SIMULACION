@@ -46,6 +46,17 @@ def _evento_minimo(eventos: Dict[str, float]) -> Tuple[str, float]:
     return min(eventos.items(), key=lambda item: item[1])
 
 
+def _evento_minimo_simulable(eventos: Dict[str, float]) -> Tuple[str, float]:
+    eventos_simulables = {
+        evento: hora
+        for evento, hora in eventos.items()
+        if evento != "Fin Simulacion"
+    }
+    if not eventos_simulables:
+        return "Fin Simulacion", float("inf")
+    return _evento_minimo(eventos_simulables)
+
+
 def _parametros_llegadas_por_defecto() -> Dict:
     return {
         "Futbol": {"media": 600.0},
@@ -87,6 +98,7 @@ def _limpiar_variables_generadas(estado: Dict) -> None:
 
 def _limpiar_integracion_generada(estado: Dict) -> None:
     estado["id_limpieza_generada"] = "-"
+    estado["integracion_id_generada"] = "-"
     estado["metodo_integracion_limpieza"] = "-"
     estado["h_integracion_limpieza"] = "-"
     estado["valor_integracion_limpieza"] = "-"
@@ -193,6 +205,7 @@ def _procesar_fin_uso(
 
     limpieza_numero = estado["proximo_id_limpieza"]
     limpieza_id = f"L{limpieza_numero}"
+    integracion_id = f"LIMP_{limpieza_numero}"
     estado["proximo_id_limpieza"] += 1
     estado["cantidad_limpiezas"] += 1
     estado["estado_cancha"] = "En Limpieza"
@@ -202,6 +215,7 @@ def _procesar_fin_uso(
     estado["eventos"]["Fin Uso Cancha"] = float("inf")
     estado["eventos"]["Fin Limpieza"] = reloj + tiempo_limpieza
     estado["id_limpieza_generada"] = limpieza_id
+    estado["integracion_id_generada"] = integracion_id
     estado["metodo_integracion_limpieza"] = metodo
     estado["h_integracion_limpieza"] = h
     estado["valor_integracion_limpieza"] = tiempo_limpieza
@@ -212,6 +226,7 @@ def _procesar_fin_uso(
     estado["valor_generado"] = tiempo_limpieza
 
     fila_integracion = {
+        "integracion_id": integracion_id,
         "ID Limpieza": limpieza_id,
         "Disciplina": disciplina,
         "D Objetivo": d_objetivo,
@@ -250,6 +265,7 @@ def _crear_fila(iteracion: int, reloj: float, evento: str, estado: Dict) -> Dict
         "Proxima Llegada Basket": estado["eventos"]["Llegada Basket"],
         "Proximo Fin Uso": estado["eventos"]["Fin Uso Cancha"],
         "Proximo Fin Limpieza": estado["eventos"]["Fin Limpieza"],
+        "integracion_id": estado["integracion_id_generada"],
         "ID Limpieza": estado["id_limpieza_generada"],
         "Metodo Integracion": estado["metodo_integracion_limpieza"],
         "h Integracion": estado["h_integracion_limpieza"],
@@ -292,7 +308,9 @@ def simular(parametros: Dict) -> Dict:
     rng = np.random.default_rng(parametros.get("semilla"))
     estado = crear_estado_inicial()
     tiempo_simulacion = float(parametros["tiempo_simulacion"])
-    max_iteraciones = int(parametros["max_iteraciones"])
+    max_iteraciones_solicitadas = int(parametros["max_iteraciones"])
+    limite_maximo_iteraciones = 100000
+    max_iteraciones = min(max_iteraciones_solicitadas, limite_maximo_iteraciones)
     parametros_llegadas = parametros.get("parametros_llegadas", _parametros_llegadas_por_defecto())
     parametros_usos = parametros.get("parametros_usos", _parametros_usos_por_defecto())
     estado["eventos"]["Fin Simulacion"] = tiempo_simulacion
@@ -302,6 +320,7 @@ def simular(parametros: Dict) -> Dict:
 
     filas: List[Dict] = []
     ultima_fila = _crear_fila(0, 0.0, "Inicializacion", estado)
+    filas_completas: List[Dict] = [ultima_fila]
     guardadas_en_rango = 0
     if _debe_guardar_fila(
         0.0,
@@ -316,16 +335,20 @@ def simular(parametros: Dict) -> Dict:
     integraciones: List[Dict] = []
     iteracion = 0
     evento = "Inicializacion"
+    motivo_finalizacion = ""
 
-    while True:
-        if iteracion >= max_iteraciones:
-            raise RuntimeError(
-                "Se alcanzo el maximo de iteraciones antes de llegar al evento Fin Simulacion. "
-                "Aumente el Maximo N de iteraciones para simular internamente hasta X."
-            )
-
-        evento, hora_evento = _evento_minimo(estado["eventos"])
-        if math.isinf(hora_evento):
+    while iteracion < max_iteraciones and estado["reloj"] < tiempo_simulacion:
+        evento, hora_evento = _evento_minimo_simulable(estado["eventos"])
+        if math.isinf(hora_evento) or hora_evento > tiempo_simulacion:
+            delta = tiempo_simulacion - estado["reloj"]
+            _actualizar_acumuladores_tiempo(estado, delta)
+            estado["reloj"] = tiempo_simulacion
+            iteracion += 1
+            _limpiar_variables_generadas(estado)
+            _limpiar_integracion_generada(estado)
+            ultima_fila = _crear_fila(iteracion, estado["reloj"], "Fin Simulacion", estado)
+            ultima_fila["Objetos Temporales Activos"] = ""
+            motivo_finalizacion = "tiempo"
             break
 
         delta = hora_evento - estado["reloj"]
@@ -335,11 +358,6 @@ def simular(parametros: Dict) -> Dict:
         _limpiar_variables_generadas(estado)
         _limpiar_integracion_generada(estado)
 
-        if evento == "Fin Simulacion":
-            ultima_fila = _crear_fila(iteracion, estado["reloj"], evento, estado)
-            if not filas or filas[-1] != ultima_fila:
-                filas.append(ultima_fila)
-            break
         if evento.startswith("Llegada"):
             disciplina = evento.replace("Llegada ", "")
             _procesar_llegada(
@@ -368,6 +386,7 @@ def simular(parametros: Dict) -> Dict:
             _procesar_fin_limpieza(estado, rng, estado["reloj"], parametros_usos)
 
         ultima_fila = _crear_fila(iteracion, estado["reloj"], evento, estado)
+        filas_completas.append(ultima_fila)
         if _debe_guardar_fila(
             estado["reloj"],
             parametros["mostrar_todas"],
@@ -378,12 +397,32 @@ def simular(parametros: Dict) -> Dict:
             filas.append(ultima_fila)
             guardadas_en_rango += 1
 
-        if evento == "Fin Simulacion":
-            break
+    if not motivo_finalizacion:
+        if estado["reloj"] >= tiempo_simulacion:
+            motivo_finalizacion = "tiempo"
+        elif iteracion >= limite_maximo_iteraciones:
+            motivo_finalizacion = "limite_maximo_iteraciones"
+        elif iteracion >= max_iteraciones:
+            motivo_finalizacion = "cantidad_iteraciones"
+        else:
+            motivo_finalizacion = "sin_eventos"
+
+    if not filas or filas[-1] != ultima_fila:
+        filas.append(ultima_fila)
+    if not filas_completas or filas_completas[-1] != ultima_fila:
+        filas_completas.append(ultima_fila)
+
+    mensajes_finalizacion = {
+        "tiempo": "Finalizó por tiempo X",
+        "cantidad_iteraciones": "Finalizó por cantidad N de iteraciones",
+        "limite_maximo_iteraciones": "Finalizó por límite máximo de 100000 iteraciones",
+        "sin_eventos": "Finalizó porque no hay más eventos pendientes",
+    }
 
     tiempo_final = float(estado["reloj"])
     return {
         "vector_estado": pd.DataFrame(filas),
+        "vector_estado_completo": pd.DataFrame(filas_completas),
         "integraciones": pd.DataFrame(integraciones).round(4),
         "metricas": {
             clave: round(valor, 4)
@@ -391,5 +430,7 @@ def simular(parametros: Dict) -> Dict:
         },
         "iteraciones": iteracion,
         "tiempo_final": round(tiempo_final, 4),
+        "motivo_finalizacion": motivo_finalizacion,
+        "mensaje_finalizacion": mensajes_finalizacion[motivo_finalizacion],
         "estado_final": estado,
     }

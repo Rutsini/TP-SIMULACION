@@ -189,6 +189,7 @@ def preparar_vector_con_encabezados(
         ).apply(lambda fila: next((valor for valor in fila if valor != "-"), "-"), axis=1),
         ("Cancha", "Próximo fin de uso"): _serie_desde_columna(df_base, "Proximo Fin Uso"),
         ("Cancha", "Tiempo de Limpieza"): _serie_desde_columna(df_base, "Tiempo Limpieza Generado"),
+        ("Cancha", "ID integracion"): _serie_desde_columna(df_base, "integracion_id"),
         ("Cancha", "ID limpieza"): _serie_desde_columna(df_base, "ID Limpieza"),
         ("Cancha", "Próximo fin de limpieza"): _serie_desde_columna(df_base, "Proximo Fin Limpieza"),
         ("Cancha", "Cola GF"): _serie_desde_columna(df_base, "Cola Futbol"),
@@ -218,21 +219,111 @@ def preparar_vector_con_encabezados(
 
 def _mostrar_metricas(metricas: dict) -> None:
     columnas = st.columns(5)
-    claves = [
-        "Espera promedio Futbol",
-        "Espera promedio HandBall",
-        "Espera promedio Basket",
-        "Tiempo libre diario promedio de la cancha",
-        "Limpiezas promedio por dia",
+    metricas_config = [
+        ("Espera promedio Futbol", "Espera promedio Futbol (min)", "min"),
+        ("Espera promedio HandBall", "Espera promedio HandBall (min)", "min"),
+        ("Espera promedio Basket", "Espera promedio Basket (min)", "min"),
+        (
+            "Tiempo libre diario promedio de la cancha",
+            "Tiempo libre diario promedio de la cancha (min/día)",
+            "min/día",
+        ),
+        ("Limpiezas promedio por dia", "Limpiezas promedio por día (limpiezas/día)", "limpiezas/día"),
     ]
 
-    for indice, clave in enumerate(claves):
+    for indice, (clave, etiqueta, unidad) in enumerate(metricas_config):
         valor = metricas.get(clave, 0)
-        columnas[indice].metric(clave, f"{valor:.4f}" if isinstance(valor, float) else valor)
+        if isinstance(valor, (int, float)):
+            valor_formateado = f"{valor:.4f} {unidad}"
+        else:
+            valor_formateado = f"{valor} {unidad}"
+        columnas[indice].metric(etiqueta, valor_formateado)
+
+
+def _normalizar_id_integracion(valor) -> str:
+    if pd.isna(valor) or valor in ("", "-"):
+        return ""
+    return str(valor).strip()
+
+
+def _ids_integraciones_en_vector(vector_estado: pd.DataFrame) -> set[str]:
+    ids = set()
+    if vector_estado.empty:
+        return ids
+
+    for _, fila in vector_estado.iterrows():
+        if "integracion_id" in vector_estado.columns:
+            integracion_id = _normalizar_id_integracion(fila.get("integracion_id", ""))
+            if integracion_id:
+                ids.add(integracion_id)
+
+        if "integraciones_ids" in vector_estado.columns:
+            integraciones_ids = fila.get("integraciones_ids", [])
+            if isinstance(integraciones_ids, (list, tuple, set)):
+                for integracion_id in integraciones_ids:
+                    integracion_id_normalizado = _normalizar_id_integracion(integracion_id)
+                    if integracion_id_normalizado:
+                        ids.add(integracion_id_normalizado)
+
+        if "ID Limpieza" in vector_estado.columns:
+            id_limpieza = _normalizar_id_integracion(fila.get("ID Limpieza", ""))
+            if id_limpieza:
+                ids.add(id_limpieza)
+
+    return ids
+
+
+def _filtrar_integraciones_visibles(
+    integraciones: pd.DataFrame,
+    vector_estado_visible: pd.DataFrame,
+) -> pd.DataFrame:
+    ids_visibles = _ids_integraciones_en_vector(vector_estado_visible)
+    if not ids_visibles:
+        return integraciones.iloc[0:0].copy()
+
+    filtros = []
+    if "integracion_id" in integraciones.columns:
+        filtros.append(integraciones["integracion_id"].astype(str).isin(ids_visibles))
+    if "ID Limpieza" in integraciones.columns:
+        filtros.append(integraciones["ID Limpieza"].astype(str).isin(ids_visibles))
+
+    if not filtros:
+        return integraciones.iloc[0:0].copy()
+
+    mascara = filtros[0]
+    for filtro in filtros[1:]:
+        mascara = mascara | filtro
+    return integraciones[mascara].copy()
+
+
+def _filtrar_vector_estado_visible(
+    vector_estado_completo: pd.DataFrame,
+    mostrar_todas: bool,
+    hora_desde: float,
+    cantidad_filas: int,
+) -> pd.DataFrame:
+    if vector_estado_completo.empty:
+        return vector_estado_completo.copy()
+
+    if mostrar_todas or "Reloj" not in vector_estado_completo.columns:
+        return vector_estado_completo.copy().reset_index(drop=True)
+
+    relojes = pd.to_numeric(vector_estado_completo["Reloj"], errors="coerce")
+    filas_visibles = vector_estado_completo[relojes >= hora_desde].head(cantidad_filas).copy()
+    ultima_fila = vector_estado_completo.tail(1).copy()
+
+    if filas_visibles.empty:
+        return ultima_fila.reset_index(drop=True)
+
+    if ultima_fila.index[-1] not in filas_visibles.index:
+        filas_visibles = pd.concat([filas_visibles, ultima_fila])
+
+    return filas_visibles.reset_index(drop=True)
 
 
 def _resumen_integraciones(integraciones: pd.DataFrame) -> pd.DataFrame:
     columnas = [
+        "integracion_id",
         "ID Limpieza",
         "Disciplina",
         "D Objetivo",
@@ -334,21 +425,32 @@ def _detalle_integracion_para_mostrar(detalle: pd.DataFrame, metodo: str) -> pd.
     ).round(4)
 
 
-def _mostrar_tablas_integracion(integraciones: pd.DataFrame) -> None:
+def _mostrar_tablas_integracion(
+    integraciones: pd.DataFrame,
+    vector_estado_visible: pd.DataFrame,
+    mostrar_solo_integraciones_visibles: bool,
+) -> None:
     st.subheader("Tablas de integracion")
     if integraciones.empty:
         st.info("Todavia no se realizaron limpiezas.")
         return
 
-    resumen = _resumen_integraciones(integraciones)
+    integraciones_a_mostrar = integraciones
+    if mostrar_solo_integraciones_visibles:
+        integraciones_a_mostrar = _filtrar_integraciones_visibles(integraciones, vector_estado_visible)
+        if integraciones_a_mostrar.empty:
+            st.info("No hay integraciones asociadas a las filas visibles del vector de estado.")
+            return
+
+    resumen = _resumen_integraciones(integraciones_a_mostrar)
     st.dataframe(resumen, use_container_width=True, height=280)
 
-    detalle_general = _detalle_integraciones_general(integraciones)
+    detalle_general = _detalle_integraciones_general(integraciones_a_mostrar)
     if detalle_general.empty:
         st.info("Active 'Guardar y mostrar detalle de integraciones' y vuelva a simular para ver los pasos internos.")
         return
 
-    for _, integracion in integraciones.iterrows():
+    for _, integracion in integraciones_a_mostrar.iterrows():
         id_limpieza = integracion.get("ID Limpieza", "-")
         disciplina = integracion.get("Disciplina", "-")
         metodo = integracion.get("Metodo", "-")
@@ -413,6 +515,10 @@ def _parametros_sidebar() -> dict:
     capacidad_cola = st.sidebar.number_input("Capacidad maxima de cola", min_value=0, value=5, step=1)
     metodo_integracion = st.sidebar.selectbox("Metodo de integracion", ["Euler", "RK4"])
     guardar_pasos_integracion = st.sidebar.checkbox("Guardar y mostrar detalle de integraciones", value=True)
+    mostrar_solo_integraciones_visibles = st.sidebar.checkbox(
+        "Mostrar solo integraciones de las filas visibles",
+        value=False,
+    )
 
     with st.sidebar.expander("Parametros avanzados"):
         media_llegada_futbol = st.number_input("Media llegada Futbol", min_value=0.0001, value=600.0, step=10.0)
@@ -456,6 +562,7 @@ def _parametros_sidebar() -> dict:
         "capacidad_cola": int(capacidad_cola),
         "metodo_integracion": metodo_integracion,
         "guardar_pasos_integracion": guardar_pasos_integracion,
+        "mostrar_solo_integraciones_visibles": mostrar_solo_integraciones_visibles,
         "coeficiente_limpieza": coeficiente_limpieza,
         "parametros_llegadas": parametros_llegadas,
         "parametros_usos": parametros_usos,
@@ -539,6 +646,8 @@ def main() -> None:
         _mostrar_formulas()
         return
 
+    st.info(resultado.get("mensaje_finalizacion", "Simulación finalizada."))
+
     st.subheader("Metricas finales")
     _mostrar_metricas(resultado["metricas"])
     st.caption(
@@ -554,7 +663,13 @@ def main() -> None:
             f"Mostrando hasta {parametros['cantidad_filas']} filas "
             f"desde el minuto {parametros['hora_desde']:.4f}."
         )
-    vector_estado = resultado["vector_estado"]
+    vector_estado_completo = resultado.get("vector_estado_completo", resultado["vector_estado"])
+    vector_estado = _filtrar_vector_estado_visible(
+        vector_estado_completo,
+        parametros["mostrar_todas"],
+        parametros["hora_desde"],
+        parametros["cantidad_filas"],
+    )
     if not vector_estado.empty:
         if parametros["mostrar_encabezados_agrupados"]:
             vector_estado_visual = preparar_vector_con_encabezados(
@@ -567,7 +682,11 @@ def main() -> None:
     else:
         st.warning("No se generaron filas para mostrar.")
 
-    _mostrar_tablas_integracion(resultado["integraciones"])
+    _mostrar_tablas_integracion(
+        resultado["integraciones"],
+        vector_estado,
+        parametros["mostrar_solo_integraciones_visibles"],
+    )
 
     _mostrar_formulas()
 

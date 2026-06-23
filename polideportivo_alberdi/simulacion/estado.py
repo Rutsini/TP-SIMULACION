@@ -40,6 +40,7 @@ def crear_estado_inicial() -> Dict:
         "tipo_variable_generada": "",
         "variables_generadas": [],
         "id_limpieza_generada": "-",
+        "integracion_id_generada": "-",
         "metodo_integracion_limpieza": "-",
         "h_integracion_limpieza": "-",
         "valor_integracion_limpieza": "-",
