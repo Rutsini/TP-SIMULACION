@@ -1,12 +1,11 @@
 """Interfaz Streamlit para la simulacion del Polideportivo Alberdi."""
 
 from __future__ import annotations
+from numbers import Number
 
 import pandas as pd
 import streamlit as st
-
 from simulacion.motor import simular
-
 
 def _dividir_valores_generados(valor) -> list[str]:
     if pd.isna(valor) or valor == "":
@@ -106,7 +105,7 @@ def _serie_orden_cola_futbol_basket(df: pd.DataFrame) -> pd.Series:
     )
 
 
-def _equipos_temporales_visibles(df: pd.DataFrame, max_objetos_temporales: int | None) -> list[str]:
+def _equipos_temporales_visibles(df: pd.DataFrame) -> list[str]:
     equipos = set()
     if "Objetos Temporales Activos" not in df.columns:
         return []
@@ -115,19 +114,13 @@ def _equipos_temporales_visibles(df: pd.DataFrame, max_objetos_temporales: int |
         for objeto in _parsear_objetos_temporales(resumen):
             equipos.add(objeto["equipo"])
 
-    equipos_ordenados = sorted(equipos, key=_numero_equipo)
-    if max_objetos_temporales is not None:
-        return equipos_ordenados[:max_objetos_temporales]
-    return equipos_ordenados
+    return sorted(equipos, key=_numero_equipo)
 
 
-def _columnas_objetos_temporales(
-    df: pd.DataFrame,
-    max_objetos_temporales: int | None = None,
-) -> dict[tuple[str, str], pd.Series]:
+def _columnas_objetos_temporales(df: pd.DataFrame) -> dict[tuple[str, str], pd.Series]:
     columnas = {}
     horas_llegada = _mapear_horas_llegada_visibles(df)
-    equipos = _equipos_temporales_visibles(df, max_objetos_temporales)
+    equipos = _equipos_temporales_visibles(df)
 
     for equipo in equipos:
         tipos = []
@@ -151,10 +144,7 @@ def _columnas_objetos_temporales(
     return columnas
 
 
-def preparar_vector_con_encabezados(
-    df: pd.DataFrame,
-    max_objetos_temporales: int | None = None,
-) -> pd.DataFrame:
+def preparar_vector_con_encabezados(df: pd.DataFrame) -> pd.DataFrame:
     df_base = df.copy()
     columnas_visuales = {
         ("", "N"): _serie_desde_columna(df_base, "N"),
@@ -189,7 +179,6 @@ def preparar_vector_con_encabezados(
         ).apply(lambda fila: next((valor for valor in fila if valor != "-"), "-"), axis=1),
         ("Cancha", "Próximo fin de uso"): _serie_desde_columna(df_base, "Proximo Fin Uso"),
         ("Cancha", "Tiempo de Limpieza"): _serie_desde_columna(df_base, "Tiempo Limpieza Generado"),
-        ("Cancha", "ID integracion"): _serie_desde_columna(df_base, "integracion_id"),
         ("Cancha", "ID limpieza"): _serie_desde_columna(df_base, "ID Limpieza"),
         ("Cancha", "Próximo fin de limpieza"): _serie_desde_columna(df_base, "Proximo Fin Limpieza"),
         ("Cancha", "Cola GF"): _serie_desde_columna(df_base, "Cola Futbol"),
@@ -206,7 +195,7 @@ def preparar_vector_con_encabezados(
         ("Orden Cola Fútbol/Basket", "Orden Cola Fútbol/Basket"): _serie_orden_cola_futbol_basket(df_base),
     }
 
-    columnas_visuales.update(_columnas_objetos_temporales(df_base, max_objetos_temporales))
+    columnas_visuales.update(_columnas_objetos_temporales(df_base))
     columnas_visuales[("Objetos Temporales", "Resumen")] = _serie_desde_columna(
         df_base,
         "Objetos Temporales Activos",
@@ -240,33 +229,20 @@ def _mostrar_metricas(metricas: dict) -> None:
         columnas[indice].metric(etiqueta, valor_formateado)
 
 
-def _normalizar_id_integracion(valor) -> str:
+def _normalizar_id_limpieza(valor) -> str:
     if pd.isna(valor) or valor in ("", "-"):
         return ""
     return str(valor).strip()
 
 
-def _ids_integraciones_en_vector(vector_estado: pd.DataFrame) -> set[str]:
+def _ids_limpieza_en_vector(vector_estado: pd.DataFrame) -> set[str]:
     ids = set()
     if vector_estado.empty:
         return ids
 
     for _, fila in vector_estado.iterrows():
-        if "integracion_id" in vector_estado.columns:
-            integracion_id = _normalizar_id_integracion(fila.get("integracion_id", ""))
-            if integracion_id:
-                ids.add(integracion_id)
-
-        if "integraciones_ids" in vector_estado.columns:
-            integraciones_ids = fila.get("integraciones_ids", [])
-            if isinstance(integraciones_ids, (list, tuple, set)):
-                for integracion_id in integraciones_ids:
-                    integracion_id_normalizado = _normalizar_id_integracion(integracion_id)
-                    if integracion_id_normalizado:
-                        ids.add(integracion_id_normalizado)
-
         if "ID Limpieza" in vector_estado.columns:
-            id_limpieza = _normalizar_id_integracion(fila.get("ID Limpieza", ""))
+            id_limpieza = _normalizar_id_limpieza(fila.get("ID Limpieza", ""))
             if id_limpieza:
                 ids.add(id_limpieza)
 
@@ -277,22 +253,14 @@ def _filtrar_integraciones_visibles(
     integraciones: pd.DataFrame,
     vector_estado_visible: pd.DataFrame,
 ) -> pd.DataFrame:
-    ids_visibles = _ids_integraciones_en_vector(vector_estado_visible)
+    ids_visibles = _ids_limpieza_en_vector(vector_estado_visible)
     if not ids_visibles:
         return integraciones.iloc[0:0].copy()
 
-    filtros = []
-    if "integracion_id" in integraciones.columns:
-        filtros.append(integraciones["integracion_id"].astype(str).isin(ids_visibles))
-    if "ID Limpieza" in integraciones.columns:
-        filtros.append(integraciones["ID Limpieza"].astype(str).isin(ids_visibles))
-
-    if not filtros:
+    if "ID Limpieza" not in integraciones.columns:
         return integraciones.iloc[0:0].copy()
 
-    mascara = filtros[0]
-    for filtro in filtros[1:]:
-        mascara = mascara | filtro
+    mascara = integraciones["ID Limpieza"].astype(str).isin(ids_visibles)
     return integraciones[mascara].copy()
 
 
@@ -323,7 +291,6 @@ def _filtrar_vector_estado_visible(
 
 def _resumen_integraciones(integraciones: pd.DataFrame) -> pd.DataFrame:
     columnas = [
-        "integracion_id",
         "ID Limpieza",
         "Disciplina",
         "D Objetivo",
@@ -403,7 +370,8 @@ def _detalle_integracion_para_mostrar(detalle: pd.DataFrame, metodo: str) -> pd.
             "Alcanza objetivo",
         ]
         detalle_visual = detalle[columnas].copy()
-        return detalle_visual.rename(columns={"Incremento": "Incremento RK4"}).round(4)
+        detalle_visual = detalle_visual.rename(columns={"Incremento": "Incremento RK4"})
+        return _formatear_detalle_integracion(detalle_visual)
 
     columnas = [
         "Paso",
@@ -417,12 +385,33 @@ def _detalle_integracion_para_mostrar(detalle: pd.DataFrame, metodo: str) -> pd.
         "Alcanza objetivo",
     ]
     detalle_visual = detalle[columnas].copy()
-    return detalle_visual.rename(
+    detalle_visual = detalle_visual.rename(
         columns={
             "f(t,D)": "f(t,D) = 0.6*C + t",
             "Incremento": "Incremento = h * f(t,D)",
         }
-    ).round(4)
+    )
+    return _formatear_detalle_integracion(detalle_visual)
+
+
+def _formatear_detalle_integracion(detalle: pd.DataFrame) -> pd.DataFrame:
+    columnas_sin_decimales = {"Paso", "C", "Alcanza objetivo"}
+    detalle_formateado = detalle.copy()
+
+    for columna in detalle_formateado.columns:
+        if columna in columnas_sin_decimales:
+            continue
+        detalle_formateado[columna] = detalle_formateado[columna].map(_formatear_celda_detalle)
+
+    return detalle_formateado
+
+
+def _formatear_celda_detalle(valor):
+    if pd.isna(valor) or valor in ("", "-"):
+        return valor
+    if isinstance(valor, Number) and not isinstance(valor, bool):
+        return f"{valor:.4f}"
+    return valor
 
 
 def _mostrar_tablas_integracion(
@@ -443,7 +432,7 @@ def _mostrar_tablas_integracion(
             return
 
     resumen = _resumen_integraciones(integraciones_a_mostrar)
-    st.dataframe(resumen, use_container_width=True, height=280)
+    st.dataframe(resumen, width="stretch", height=280)
 
     detalle_general = _detalle_integraciones_general(integraciones_a_mostrar)
     if detalle_general.empty:
@@ -461,7 +450,7 @@ def _mostrar_tablas_integracion(
         with st.expander(f"Limpieza {id_limpieza} - {disciplina} - {metodo}"):
             st.dataframe(
                 _detalle_integracion_para_mostrar(detalle, metodo),
-                use_container_width=True,
+                width="stretch",
                 height=300,
             )
 
@@ -484,14 +473,6 @@ def _parametros_sidebar() -> dict:
     hora_desde = st.sidebar.number_input("Hora j desde donde mostrar", min_value=0.0, value=0.0, step=60.0)
     cantidad_filas = st.sidebar.number_input("Cantidad i de filas a mostrar", min_value=1, value=200, step=10)
     mostrar_todas = st.sidebar.checkbox("Mostrar todas las filas", value=False)
-    mostrar_encabezados_agrupados = st.sidebar.checkbox("Mostrar encabezados agrupados", value=True)
-    max_objetos_temporales = st.sidebar.number_input(
-        "Cantidad maxima de objetos temporales a mostrar (0 = todos)",
-        min_value=0,
-        value=0,
-        step=1,
-    )
-
     semilla_texto = st.sidebar.text_input("Semilla aleatoria opcional", value="")
     semilla = None
     if semilla_texto.strip():
@@ -550,8 +531,6 @@ def _parametros_sidebar() -> dict:
         "hora_desde": hora_desde,
         "cantidad_filas": int(cantidad_filas),
         "mostrar_todas": mostrar_todas,
-        "mostrar_encabezados_agrupados": mostrar_encabezados_agrupados,
-        "max_objetos_temporales": None if int(max_objetos_temporales) == 0 else int(max_objetos_temporales),
         "semilla": semilla,
         "h": h,
         "objetivos_limpieza": {
@@ -631,7 +610,7 @@ def main() -> None:
 
     parametros = _parametros_sidebar()
 
-    if st.sidebar.button("Simular", type="primary", use_container_width=True):
+    if st.sidebar.button("Simular", type="primary", width="stretch"):
         with st.spinner("Simulando eventos..."):
             try:
                 resultado = simular(parametros)
@@ -671,14 +650,10 @@ def main() -> None:
         parametros["cantidad_filas"],
     )
     if not vector_estado.empty:
-        if parametros["mostrar_encabezados_agrupados"]:
-            vector_estado_visual = preparar_vector_con_encabezados(
-                vector_estado,
-                max_objetos_temporales=parametros["max_objetos_temporales"],
-            )
-            st.dataframe(vector_estado_visual, use_container_width=True, height=600)
-        else:
-            st.dataframe(vector_estado, use_container_width=True, height=600)
+        vector_estado_visual = preparar_vector_con_encabezados(
+            vector_estado,
+        )
+        st.dataframe(vector_estado_visual.astype(str), width="stretch", height=600)
     else:
         st.warning("No se generaron filas para mostrar.")
 

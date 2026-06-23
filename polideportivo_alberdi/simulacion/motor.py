@@ -98,7 +98,6 @@ def _limpiar_variables_generadas(estado: Dict) -> None:
 
 def _limpiar_integracion_generada(estado: Dict) -> None:
     estado["id_limpieza_generada"] = "-"
-    estado["integracion_id_generada"] = "-"
     estado["metodo_integracion_limpieza"] = "-"
     estado["h_integracion_limpieza"] = "-"
     estado["valor_integracion_limpieza"] = "-"
@@ -205,7 +204,6 @@ def _procesar_fin_uso(
 
     limpieza_numero = estado["proximo_id_limpieza"]
     limpieza_id = f"L{limpieza_numero}"
-    integracion_id = f"LIMP_{limpieza_numero}"
     estado["proximo_id_limpieza"] += 1
     estado["cantidad_limpiezas"] += 1
     estado["estado_cancha"] = "En Limpieza"
@@ -215,7 +213,6 @@ def _procesar_fin_uso(
     estado["eventos"]["Fin Uso Cancha"] = float("inf")
     estado["eventos"]["Fin Limpieza"] = reloj + tiempo_limpieza
     estado["id_limpieza_generada"] = limpieza_id
-    estado["integracion_id_generada"] = integracion_id
     estado["metodo_integracion_limpieza"] = metodo
     estado["h_integracion_limpieza"] = h
     estado["valor_integracion_limpieza"] = tiempo_limpieza
@@ -226,7 +223,6 @@ def _procesar_fin_uso(
     estado["valor_generado"] = tiempo_limpieza
 
     fila_integracion = {
-        "integracion_id": integracion_id,
         "ID Limpieza": limpieza_id,
         "Disciplina": disciplina,
         "D Objetivo": d_objetivo,
@@ -265,7 +261,6 @@ def _crear_fila(iteracion: int, reloj: float, evento: str, estado: Dict) -> Dict
         "Proxima Llegada Basket": estado["eventos"]["Llegada Basket"],
         "Proximo Fin Uso": estado["eventos"]["Fin Uso Cancha"],
         "Proximo Fin Limpieza": estado["eventos"]["Fin Limpieza"],
-        "integracion_id": estado["integracion_id_generada"],
         "ID Limpieza": estado["id_limpieza_generada"],
         "Metodo Integracion": estado["metodo_integracion_limpieza"],
         "h Integracion": estado["h_integracion_limpieza"],

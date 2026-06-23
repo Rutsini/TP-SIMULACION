@@ -63,7 +63,6 @@ def calcular_limpieza(
         t += h
         pasos += 1
         if guardar_pasos:
-            alcanza_objetivo = d >= d_objetivo
             if metodo == "RK4":
                 k1 = derivada_limpieza(t_anterior, d_anterior, c_inicial, coeficiente_c)
                 k2 = derivada_limpieza(t_anterior + h / 2, d_anterior + h * k1 / 2, c_inicial, coeficiente_c)
@@ -84,9 +83,27 @@ def calcular_limpieza(
                         "Incremento": incremento,
                         "D siguiente": d,
                         "D Objetivo": d_objetivo,
-                        "Alcanza objetivo": "Si" if alcanza_objetivo else "No",
+                        "Alcanza objetivo": "Sí" if d_anterior >= d_objetivo else "No",
                     }
                 )
+                if d >= d_objetivo:
+                    detalle.append(
+                        {
+                            "Paso": pasos,
+                            "t actual": t,
+                            "D actual": d,
+                            "C": c_inicial,
+                            "h": h,
+                            "k1": "",
+                            "k2": "",
+                            "k3": "",
+                            "k4": "",
+                            "Incremento": "",
+                            "D siguiente": "",
+                            "D Objetivo": d_objetivo,
+                            "Alcanza objetivo": "Sí",
+                        }
+                    )
             else:
                 valor_funcion = derivada_limpieza(t_anterior, d_anterior, c_inicial, coeficiente_c)
                 incremento = h * valor_funcion
@@ -101,8 +118,23 @@ def calcular_limpieza(
                         "Incremento": incremento,
                         "D siguiente": d,
                         "D Objetivo": d_objetivo,
-                        "Alcanza objetivo": "Si" if alcanza_objetivo else "No",
+                        "Alcanza objetivo": "Sí" if d_anterior >= d_objetivo else "No",
                     }
                 )
+                if d >= d_objetivo:
+                    detalle.append(
+                        {
+                            "Paso": pasos,
+                            "t actual": t,
+                            "D actual": d,
+                            "C": c_inicial,
+                            "h": h,
+                            "f(t,D)": "",
+                            "Incremento": "",
+                            "D siguiente": "",
+                            "D Objetivo": d_objetivo,
+                            "Alcanza objetivo": "Sí",
+                        }
+                    )
 
     return t, pasos, d, detalle
