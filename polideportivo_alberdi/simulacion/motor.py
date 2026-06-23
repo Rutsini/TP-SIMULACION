@@ -15,7 +15,7 @@ from .estado import (
     cola_total,
     crear_estado_inicial,
     crear_grupo,
-    resumen_objetos_activos,
+    objetos_temporales_activos,
     elegir_siguiente_grupo,
 )
 from .integracion import calcular_limpieza
@@ -293,7 +293,7 @@ def _crear_fila(iteracion: int, reloj: float, evento: str, estado: Dict) -> Dict
         "Tiempo Ocupado Acumulado": estado["tiempo_ocupado"],
         "Cantidad Limpiezas": estado["cantidad_limpiezas"],
         "Maxima Cola Total": estado["maxima_cola_total"],
-        "Objetos Temporales Activos": resumen_objetos_activos(estado),
+        "Objetos Temporales": objetos_temporales_activos(estado),
     }
     return {clave: _formatear_valor(valor) for clave, valor in fila.items()}
 
@@ -342,7 +342,7 @@ def simular(parametros: Dict) -> Dict:
             _limpiar_variables_generadas(estado)
             _limpiar_integracion_generada(estado)
             ultima_fila = _crear_fila(iteracion, estado["reloj"], "Fin Simulacion", estado)
-            ultima_fila["Objetos Temporales Activos"] = ""
+            ultima_fila["Objetos Temporales"] = []
             motivo_finalizacion = "tiempo"
             break
 

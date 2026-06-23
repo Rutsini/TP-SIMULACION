@@ -99,10 +99,17 @@ def elegir_siguiente_grupo(estado: Dict) -> Optional[Dict]:
     return None
 
 
-def resumen_objetos_activos(estado: Dict) -> str:
-    """Resume objetos temporales activos en una sola celda."""
-    partes = []
+def objetos_temporales_activos(estado: Dict) -> List[Dict]:
+    """Devuelve los objetos temporales activos como datos estructurados."""
+    objetos = []
     for grupo in sorted(estado["objetos"].values(), key=lambda g: g["id"]):
-        disciplina = grupo["disciplina"]
-        partes.append(f"G{grupo['id']}-{disciplina}-{grupo['estado'].replace(' ', '')}")
-    return " | ".join(partes)
+        objetos.append(
+            {
+                "equipo": f"G{grupo['id']}",
+                "numero": grupo["id"],
+                "disciplina": grupo["disciplina"],
+                "estado": grupo["estado"],
+                "hora_llegada": round(grupo["hora_llegada"], 4),
+            }
+        )
+    return objetos

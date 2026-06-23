@@ -26,32 +26,10 @@ def _buscar_variable_generada(fila: pd.Series, tipo_buscado: str) -> tuple[str, 
     return "", ""
 
 
-def _estado_objeto_legible(estado: str) -> str:
-    estados = {
-        "EnCola": "En Cola",
-        "EnCancha": "En Cancha",
-    }
-    return estados.get(estado, estado)
-
-
-def _parsear_objetos_temporales(resumen) -> list[dict]:
-    if pd.isna(resumen) or resumen == "":
+def _objetos_temporales_de_fila(fila: pd.Series) -> list[dict]:
+    objetos = fila.get("Objetos Temporales", [])
+    if not isinstance(objetos, list):
         return []
-
-    objetos = []
-    for parte in str(resumen).split("|"):
-        campos = [campo.strip() for campo in parte.strip().split("-", 2)]
-        if len(campos) < 3:
-            continue
-        equipo, disciplina, estado = campos
-        objetos.append(
-            {
-                "equipo": equipo,
-                "numero": _numero_equipo(equipo),
-                "disciplina": disciplina,
-                "estado": _estado_objeto_legible(estado),
-            }
-        )
     return objetos
 
 
@@ -60,8 +38,7 @@ def _numero_equipo(equipo: str) -> int:
     return int(digitos) if digitos else 0
 
 
-def _orden_cola_futbol_basket(resumen) -> str:
-    objetos = _parsear_objetos_temporales(resumen)
+def _orden_cola_futbol_basket(objetos: list[dict]) -> str:
     en_cola = [
         f"{objeto['equipo']}-{objeto['disciplina']}"
         for objeto in objetos
@@ -72,13 +49,12 @@ def _orden_cola_futbol_basket(resumen) -> str:
 
 def _mapear_horas_llegada_visibles(df: pd.DataFrame) -> dict[str, str]:
     horas = {}
-    if "Objetos Temporales Activos" not in df.columns:
+    if "Objetos Temporales" not in df.columns:
         return horas
 
     for _, fila in df.iterrows():
-        reloj = fila.get("Reloj", "")
-        for objeto in _parsear_objetos_temporales(fila.get("Objetos Temporales Activos", "")):
-            horas.setdefault(objeto["equipo"], reloj)
+        for objeto in _objetos_temporales_de_fila(fila):
+            horas.setdefault(objeto["equipo"], objeto.get("hora_llegada", "-"))
     return horas
 
 
@@ -97,21 +73,22 @@ def _serie_variable_generada(df: pd.DataFrame, tipo_buscado: str, posicion: int)
 
 
 def _serie_orden_cola_futbol_basket(df: pd.DataFrame) -> pd.Series:
-    if "Objetos Temporales Activos" not in df.columns:
+    if "Objetos Temporales" not in df.columns:
         return pd.Series(["-"] * len(df), index=df.index)
 
-    return df["Objetos Temporales Activos"].apply(
-        lambda resumen: _orden_cola_futbol_basket(resumen) or "-"
+    return df.apply(
+        lambda fila: _orden_cola_futbol_basket(_objetos_temporales_de_fila(fila)) or "-",
+        axis=1,
     )
 
 
 def _equipos_temporales_visibles(df: pd.DataFrame) -> list[str]:
     equipos = set()
-    if "Objetos Temporales Activos" not in df.columns:
+    if "Objetos Temporales" not in df.columns:
         return []
 
-    for resumen in df["Objetos Temporales Activos"]:
-        for objeto in _parsear_objetos_temporales(resumen):
+    for _, fila in df.iterrows():
+        for objeto in _objetos_temporales_de_fila(fila):
             equipos.add(objeto["equipo"])
 
     return sorted(equipos, key=_numero_equipo)
@@ -129,7 +106,7 @@ def _columnas_objetos_temporales(df: pd.DataFrame) -> dict[tuple[str, str], pd.S
         for _, fila in df.iterrows():
             objetos = {
                 objeto["equipo"]: objeto
-                for objeto in _parsear_objetos_temporales(fila.get("Objetos Temporales Activos", ""))
+                for objeto in _objetos_temporales_de_fila(fila)
             }
             objeto = objetos.get(equipo)
             tipos.append(objeto["disciplina"] if objeto else "-")
@@ -196,10 +173,6 @@ def preparar_vector_con_encabezados(df: pd.DataFrame) -> pd.DataFrame:
     }
 
     columnas_visuales.update(_columnas_objetos_temporales(df_base))
-    columnas_visuales[("Objetos Temporales", "Resumen")] = _serie_desde_columna(
-        df_base,
-        "Objetos Temporales Activos",
-    )
 
     df_visual = pd.DataFrame(columnas_visuales, index=df_base.index).fillna("-")
     df_visual.columns = pd.MultiIndex.from_tuples(df_visual.columns)
