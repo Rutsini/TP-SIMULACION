@@ -430,19 +430,8 @@ def _mostrar_tablas_integracion(
 
 def _parametros_sidebar() -> dict:
     st.sidebar.header("Parametros")
-    tiempo_simulacion = st.sidebar.number_input(
-        "Tiempo X de simulacion (minutos)",
-        min_value=1.0,
-        value=1440.0,
-        step=60.0,
-    )
-    max_iteraciones = st.sidebar.number_input(
-        "Maximo N de iteraciones",
-        min_value=1,
-        max_value=100000,
-        value=10000,
-        step=100,
-    )
+    tiempo_simulacion = st.sidebar.number_input( "Tiempo X de simulacion (minutos)", min_value=1.0, value=1440.0, step=60.0,)
+    max_iteraciones = st.sidebar.number_input("Maximo N de iteraciones", min_value=1, max_value=100000, value=10000, step=100,)
     hora_desde = st.sidebar.number_input("Hora j desde donde mostrar", min_value=0.0, value=0.0, step=60.0)
     cantidad_filas = st.sidebar.number_input("Cantidad i de filas a mostrar", min_value=1, value=200, step=10)
     mostrar_todas = st.sidebar.checkbox("Mostrar todas las filas", value=False)
@@ -456,13 +445,7 @@ def _parametros_sidebar() -> dict:
 
     st.sidebar.divider()
     h = st.sidebar.number_input("h de integracion", min_value=0.0001, value=0.1, step=0.1, format="%.4f")
-    coeficiente_limpieza = st.sidebar.number_input(
-        "Coeficiente C de limpieza",
-        min_value=0.0,
-        value=0.6,
-        step=0.1,
-        format="%.4f",
-    )
+    coeficiente_limpieza = st.sidebar.number_input( "Coeficiente C de limpieza", min_value=0.0, value=0.6, step=0.1, format="%.4f", )
     d_futbol = st.sidebar.number_input("D objetivo Futbol", min_value=0.0, value=100.0, step=10.0)
     d_handball = st.sidebar.number_input("D objetivo HandBall", min_value=0.0, value=200.0, step=10.0)
     d_basket = st.sidebar.number_input("D objetivo Basket", min_value=0.0, value=300.0, step=10.0)
@@ -577,9 +560,8 @@ def _mostrar_formulas() -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="Simulacion: Polideportivo Alberdi", layout="wide")
-    st.title("Simulacion: Polideportivo Alberdi")
-    st.caption("Simulacion de eventos discretos - Sistema de colas con prioridad")
+    st.set_page_config(page_title="Simulacion: Polideportivo Alberdi - TP5", layout="wide")
+    st.title("Simulacion: Polideportivo Alberdi - TP5")
 
     parametros = _parametros_sidebar()
 
