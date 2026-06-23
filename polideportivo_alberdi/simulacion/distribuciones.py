@@ -31,6 +31,7 @@ def generar_llegada(disciplina: str, rng: np.random.Generator, parametros: Dict[
     if disciplina == "Basket":
         return uniforme(parametros["Basket"]["min"], parametros["Basket"]["max"], rng)
     raise ValueError(f"Disciplina desconocida: {disciplina}")
+    
 
 
 def generar_uso(disciplina: str, rng: np.random.Generator, parametros: Dict[str, Dict[str, float]], ) -> Tuple[float, float]:

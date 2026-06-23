@@ -310,12 +310,12 @@ def _detalle_integraciones_general(integraciones: pd.DataFrame) -> pd.DataFrame:
         "D actual",
         "C",
         "h",
-        "f(t,D)",
+        "f(t,D) = 0.6*C + t",
         "k1",
         "k2",
         "k3",
         "k4",
-        "Incremento",
+        "Incremento = h * f(t,D)",
         "D siguiente",
         "D Objetivo",
         "Alcanza objetivo",
@@ -352,18 +352,12 @@ def _detalle_integracion_para_mostrar(detalle: pd.DataFrame, metodo: str) -> pd.
         "D actual",
         "C",
         "h",
-        "f(t,D)",
-        "Incremento",
+        "f(t,D) = 0.6*C + t",
+        "Incremento = h * f(t,D)",
         "D siguiente",
         "Alcanza objetivo",
     ]
     detalle_visual = detalle[columnas].copy()
-    detalle_visual = detalle_visual.rename(
-        columns={
-            "f(t,D)": "f(t,D) = 0.6*C + t",
-            "Incremento": "Incremento = h * f(t,D)",
-        }
-    )
     return _formatear_detalle_integracion(detalle_visual)
 
 

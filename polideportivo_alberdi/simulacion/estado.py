@@ -19,6 +19,7 @@ def crear_estado_inicial() -> Dict:
     return {
         "reloj": 0.0,
         "estado_cancha": "Libre",
+        "hora_ultimo_cambio_estado_cancha": 0.0,
         "disciplina_actual": "",
         "grupo_actual": None,
         "colas": {disciplina: deque() for disciplina in DISCIPLINAS},
@@ -49,9 +50,7 @@ def crear_estado_inicial() -> Dict:
         "disciplina_limpieza": "",
         "acum_espera": {disciplina: 0.0 for disciplina in DISCIPLINAS},
         "atendidos": {disciplina: 0 for disciplina in DISCIPLINAS},
-        "retirados": {disciplina: 0 for disciplina in DISCIPLINAS},
         "tiempo_libre": 0.0,
-        "tiempo_ocupado": 0.0,
         "cantidad_limpiezas": 0,
         "maxima_cola_total": 0,
     }

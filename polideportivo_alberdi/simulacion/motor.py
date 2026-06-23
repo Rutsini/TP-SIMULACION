@@ -73,13 +73,20 @@ def _parametros_usos_por_defecto() -> Dict:
     }
 
 
-def _actualizar_acumuladores_tiempo(estado: Dict, delta: float) -> None:
+def _cerrar_intervalo_estado_cancha(estado: Dict, reloj: float) -> None:
+    delta = reloj - estado["hora_ultimo_cambio_estado_cancha"]
     if delta <= 0:
         return
     if estado["estado_cancha"] == "Libre":
         estado["tiempo_libre"] += delta
-    elif estado["estado_cancha"] == "Ocupada":
-        estado["tiempo_ocupado"] += delta
+    estado["hora_ultimo_cambio_estado_cancha"] = reloj
+
+
+def _cambiar_estado_cancha(estado: Dict, nuevo_estado: str, reloj: float) -> None:
+    if estado["estado_cancha"] == nuevo_estado:
+        return
+    _cerrar_intervalo_estado_cancha(estado, reloj)
+    estado["estado_cancha"] = nuevo_estado
 
 
 def _registrar_variable_generada(estado: Dict, tipo: str, rnd: float, valor: float) -> None:
@@ -138,7 +145,7 @@ def _iniciar_uso_si_corresponde(
     grupo["estado"] = "En Cancha"
     grupo["hora_inicio_uso"] = reloj
     grupo["tiempo_espera"] = reloj - grupo["hora_llegada"]
-    estado["estado_cancha"] = "Ocupada"
+    _cambiar_estado_cancha(estado, "Ocupada", reloj)
     estado["disciplina_actual"] = grupo["disciplina"]
     estado["grupo_actual"] = grupo["id"]
     estado["eventos"]["Fin Uso Cancha"] = reloj + tiempo_uso
@@ -158,7 +165,6 @@ def _procesar_llegada(
     _programar_llegada(estado, disciplina, rng, reloj, parametros_llegadas)
 
     if cola_total(estado) >= capacidad_cola:
-        estado["retirados"][disciplina] += 1
         return
 
     grupo = crear_grupo(estado, disciplina, reloj)
@@ -206,7 +212,7 @@ def _procesar_fin_uso(
     limpieza_id = f"L{limpieza_numero}"
     estado["proximo_id_limpieza"] += 1
     estado["cantidad_limpiezas"] += 1
-    estado["estado_cancha"] = "En Limpieza"
+    _cambiar_estado_cancha(estado, "En Limpieza", reloj)
     estado["disciplina_limpieza"] = disciplina
     estado["disciplina_actual"] = ""
     estado["grupo_actual"] = None
@@ -245,7 +251,7 @@ def _procesar_fin_limpieza(
     reloj: float,
     parametros_usos: Dict,
 ) -> None:
-    estado["estado_cancha"] = "Libre"
+    _cambiar_estado_cancha(estado, "Libre", reloj)
     estado["eventos"]["Fin Limpieza"] = float("inf")
     estado["disciplina_limpieza"] = ""
     _iniciar_uso_si_corresponde(estado, rng, reloj, parametros_usos)
@@ -286,11 +292,7 @@ def _crear_fila(iteracion: int, reloj: float, evento: str, estado: Dict) -> Dict
         "Cantidad Atendidos Futbol": estado["atendidos"]["Futbol"],
         "Cantidad Atendidos HandBall": estado["atendidos"]["HandBall"],
         "Cantidad Atendidos Basket": estado["atendidos"]["Basket"],
-        "Retirados Futbol": estado["retirados"]["Futbol"],
-        "Retirados HandBall": estado["retirados"]["HandBall"],
-        "Retirados Basket": estado["retirados"]["Basket"],
         "Tiempo Libre Acumulado": estado["tiempo_libre"],
-        "Tiempo Ocupado Acumulado": estado["tiempo_ocupado"],
         "Cantidad Limpiezas": estado["cantidad_limpiezas"],
         "Maxima Cola Total": estado["maxima_cola_total"],
         "Objetos Temporales": objetos_temporales_activos(estado),
@@ -335,8 +337,7 @@ def simular(parametros: Dict) -> Dict:
     while iteracion < max_iteraciones and estado["reloj"] < tiempo_simulacion:
         evento, hora_evento = _evento_minimo_simulable(estado["eventos"])
         if math.isinf(hora_evento) or hora_evento > tiempo_simulacion:
-            delta = tiempo_simulacion - estado["reloj"]
-            _actualizar_acumuladores_tiempo(estado, delta)
+            _cerrar_intervalo_estado_cancha(estado, tiempo_simulacion)
             estado["reloj"] = tiempo_simulacion
             iteracion += 1
             _limpiar_variables_generadas(estado)
@@ -346,8 +347,6 @@ def simular(parametros: Dict) -> Dict:
             motivo_finalizacion = "tiempo"
             break
 
-        delta = hora_evento - estado["reloj"]
-        _actualizar_acumuladores_tiempo(estado, delta)
         estado["reloj"] = hora_evento
         iteracion += 1
         _limpiar_variables_generadas(estado)
@@ -393,6 +392,13 @@ def simular(parametros: Dict) -> Dict:
             guardadas_en_rango += 1
 
     if not motivo_finalizacion:
+        _cerrar_intervalo_estado_cancha(estado, estado["reloj"])
+        ultima_fila = _crear_fila(iteracion, estado["reloj"], evento, estado)
+        if filas_completas:
+            filas_completas[-1] = ultima_fila
+        if filas and filas[-1].get("N") == ultima_fila["N"]:
+            filas[-1] = ultima_fila
+
         if estado["reloj"] >= tiempo_simulacion:
             motivo_finalizacion = "tiempo"
         elif iteracion >= limite_maximo_iteraciones:
