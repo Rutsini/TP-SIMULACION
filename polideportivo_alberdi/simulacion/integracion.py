@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from typing import Callable, Dict, List, Optional, Tuple
 
-
+"""Ecuacion diferencial dD/dt = coeficiente_c * C + t."""
 def derivada_limpieza(t: float, d: float, c: int, coeficiente_c: float) -> float:
-    """Ecuacion diferencial dD/dt = coeficiente_c * C + t."""
     return coeficiente_c * c + t
 
 

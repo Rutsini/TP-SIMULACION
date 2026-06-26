@@ -7,6 +7,7 @@ from typing import Deque, Dict, List, Optional
 
 
 DISCIPLINAS = ("Futbol", "HandBall", "Basket")
+
 EVENTO_LLEGADA = {
     "Futbol": "Llegada Futbol",
     "HandBall": "Llegada HandBall",

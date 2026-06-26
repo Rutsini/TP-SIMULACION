@@ -145,6 +145,7 @@ def _iniciar_uso_si_corresponde(
     grupo["estado"] = "En Cancha"
     grupo["hora_inicio_uso"] = reloj
     grupo["tiempo_espera"] = reloj - grupo["hora_llegada"]
+    estado["acum_espera"][grupo["disciplina"]] += grupo["tiempo_espera"] or 0.0
     _cambiar_estado_cancha(estado, "Ocupada", reloj)
     estado["disciplina_actual"] = grupo["disciplina"]
     estado["grupo_actual"] = grupo["id"]
@@ -193,7 +194,6 @@ def _procesar_fin_uso(
     grupo = estado["objetos"][grupo_id]
     grupo["hora_salida"] = reloj
     disciplina = grupo["disciplina"]
-    estado["acum_espera"][disciplina] += grupo["tiempo_espera"] or 0.0
     estado["atendidos"][disciplina] += 1
     del estado["objetos"][grupo_id]
 
